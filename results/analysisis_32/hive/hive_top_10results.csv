@@ -1,0 +1,11 @@
+aeroporto_partenza,mese,numero_ritardi_basso,numero_ritardi_medio,numero_ritardi_alto,cause_maggiori
+ABE,1,230,31,30,"['Carrier (3134 min)', 'Late Aircraft (3020 min)', 'Weather (1273 min)']"
+ABE,2,219,20,14,"['Carrier (1762 min)', 'NAS (759 min)', 'Late Aircraft (757 min)']"
+ABE,3,274,28,23,"['Carrier (1588 min)', 'Late Aircraft (1571 min)', 'NAS (1250 min)']"
+ABE,4,254,29,29,"['Carrier (4242 min)', 'Late Aircraft (2357 min)', 'NAS (1218 min)']"
+ABE,5,296,26,40,"['Late Aircraft (3839 min)', 'NAS (2034 min)', 'Carrier (1805 min)']"
+ABE,6,293,38,38,"['Carrier (3287 min)', 'Late Aircraft (2337 min)', 'NAS (1386 min)']"
+ABE,7,270,41,37,"['Late Aircraft (3022 min)', 'Carrier (2395 min)', 'NAS (1159 min)']"
+ABE,8,269,42,27,"['Late Aircraft (2169 min)', 'Carrier (1505 min)', 'NAS (1261 min)']"
+ABE,9,246,25,15,"['Late Aircraft (1516 min)', 'Carrier (1080 min)', 'Weather (728 min)']"
+ABE,10,262,31,18,"['Late Aircraft (1884 min)', 'Carrier (1564 min)', 'NAS (148 min)']"

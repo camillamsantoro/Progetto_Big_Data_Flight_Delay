@@ -1,0 +1,35 @@
+# Data
+data/raw/*
+!data/raw/.gitkeep
+data/cleaned/*
+!data/cleaned/.gitkeep
+data/subsets/*
+!data/subsets/.gitkeep
+
+# Big Data / Hadoop
+.hivejars/
+metastore_db/
+derby.log
+spark-warehouse/
+warehouse/
+hive-warehouse/
+hive-scratch/
+*.lzo
+*.index
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
