@@ -15,23 +15,26 @@ export HADOOP_OPTS="$HADOOP_OPTS -Djava.net.preferIPv4Stack=true"
 export HADOOP_HEAPSIZE=2048
 
 # --- 3. CONFIGURAZIONI HIVE (Rimossa l'intestazione automatica per non averla doppia) ---
-HIVE_SETTINGS="--hiveconf hive.exec.parallel=true --hiveconf hive.vectorized.execution.enabled=false --hiveconf mapreduce.framework.name=local --hiveconf mapreduce.map.memory.mb=2048 --hiveconf mapreduce.reduce.memory.mb=2048"
+HIVE_SETTINGS="--hiveconf fs.defaultFS=file:/// --hiveconf hive.metastore.warehouse.dir=file://$BASE_DIR/hive_warehouse --hiveconf hive.exec.scratchdir=file:///tmp/hive_scratch --hiveconf hive.exec.parallel=true --hiveconf hive.vectorized.execution.enabled=false --hiveconf mapreduce.framework.name=local --hiveconf mapreduce.map.memory.mb=2048 --hiveconf mapreduce.reduce.memory.mb=2048"
 
 # --- 4. PREPARAZIONE STRUTTURA ---
 mkdir -p results/analysis_31/{hive,spark_sql,mapreduce}
 mkdir -p results/analysisis_32/{hive,spark_sql,mapreduce}
 mkdir -p results/analysisis_33/{spark_core,spark_sql,mapreduce}
 mkdir -p benchmarks
+mkdir -p "$BASE_DIR/hive_warehouse" /tmp/hive_scratch
+chmod 1777 /tmp/hive_scratch 2>/dev/null
+chmod 1777 "$BASE_DIR/hive_warehouse" 2>/dev/null
 
 echo "Percentuale,Analisi,Tecnologia,Tempo_Secondi" > benchmarks/benchmarks.csv
 PERCENTUALI=(10 25 50 75 100 150)
 
 # INTESTAZIONI MANUALI PER TUTTI I FILE
 HEADER_31="codice,aeroporto_partenza,numero_voli,ritardo_minimo,ritardo_massimo,ritardo_medio,tasso_cancellazione,mese"
-HEADER_32="aeroporto_partenza,mese,numero_ritardi_basso,numero_ritardi_medio,numero_ritardi_alto,cause_maggiori"
+HEADER_32="aeroporto_partenza,mese,numero_ritardi_basso,dep_avg_basso,arr_avg_basso,numero_ritardi_medio,dep_avg_medio,arr_avg_medio,numero_ritardo_alto,dep_avg_alto,arr_avg_alto,cause_maggiori"
 HEADER_33="aeroporto_partenza,compagnia,numero_voli,ritardo_medio_partenza,ritardo_medio_arrivo,tasso_cancellazione,differenza,classifica"
 # Filtro per pulire le righe in cui Spark legge l'intestazione come se fosse un volo
-FILTRO_PULIZIA="op_unique_carrier|origin|aeroporto_partenza|codice"
+FILTRO_PULIZIA="^OK$|^Time taken|op_unique_carrier|origin|aeroporto_partenza|codice"
 
 if [ ! -d "$BASE_DIR/metastore_db" ]; then
     "$HIVE_HOME/bin/schematool" -dbType derby -initSchema > /dev/null 2>&1
@@ -48,7 +51,7 @@ esegui_e_cronometra() {
     START=$(date +%s)
     
     if [ "$P" -eq 100 ]; then
-        eval "$CMD_SAVE" 2>/dev/null
+        eval "$CMD_SAVE" 2>>hive_run.log
     else
         eval "$CMD_BENCH" > /dev/null 2>&1
     fi
@@ -71,11 +74,14 @@ do
     cp "$DATASET_CSV" "$BASE_DIR/tmp_csv_db/data.csv"
     CSV_DB_PATH="file://$BASE_DIR/tmp_csv_db"
 
-    # Setup Tabella Hive
-    "$HIVE_HOME/bin/hive" $HIVE_SETTINGS --hiveconf DATA_PATH="$CSV_DB_PATH" -f "$BASE_DIR/analysisis_31/hive/setup_table.sql" > /dev/null 2>&1
+    # Genera file SQL combinati (setup + query) per Hive — una sola sessione Derby per evitare lock
+    cat "$BASE_DIR/analysisis_31/hive/setup_table.sql" \
+        "$BASE_DIR/analysisis_31/hive/hive_3_1.sql" > /tmp/hive_run_31.sql
+    cat "$BASE_DIR/analysisis_32/hive/setup_table.sql" \
+        "$BASE_DIR/analysisis_32/hive/hive_3_2.sql" > /tmp/hive_run_32.sql
 
     # --- ANALISI 3.1 ---
-    CMD_H31="\"$HIVE_HOME/bin/hive\" $HIVE_SETTINGS --hiveconf DATA_PATH='$CSV_DB_PATH' -S -f '$BASE_DIR/analysisis_31/hive/hive_3_1.sql'"
+    CMD_H31="\"$HIVE_HOME/bin/hive\" $HIVE_SETTINGS --hiveconf DATA_PATH='$CSV_DB_PATH' -S -f '/tmp/hive_run_31.sql'"
     esegui_e_cronometra "$P" "3.1" "Hive" "$CMD_H31" "echo '$HEADER_31' > temp_hive_31.csv && $CMD_H31 | tr '\t' ',' | grep -vE '$FILTRO_PULIZIA' >> temp_hive_31.csv"
 
     CMD_S31="\"$SPARK_HOME/bin/spark-sql\" $HIVE_SETTINGS --hiveconf DATA_PATH='$CSV_DB_PATH' -S -f '$BASE_DIR/analysisis_31/spark_sql/spark_sql_3_1.sql'"
@@ -85,7 +91,7 @@ do
     esegui_e_cronometra "$P" "3.1" "MapReduce" "$CMD_M31" "echo '$HEADER_31' > temp_mr_31.csv && $CMD_M31 >> temp_mr_31.csv"
 
     # --- ANALISI 3.2 ---
-    CMD_H32="\"$HIVE_HOME/bin/hive\" $HIVE_SETTINGS --hiveconf DATA_PATH='$CSV_DB_PATH' -S -f '$BASE_DIR/analysisis_32/hive/hive_3_2.sql'"
+    CMD_H32="\"$HIVE_HOME/bin/hive\" $HIVE_SETTINGS --hiveconf DATA_PATH='$CSV_DB_PATH' -S -f '/tmp/hive_run_32.sql'"
     esegui_e_cronometra "$P" "3.2" "Hive" "$CMD_H32" "echo '$HEADER_32' > temp_hive_32.csv && $CMD_H32 | tr '\t' ',' | grep -vE '$FILTRO_PULIZIA' >> temp_hive_32.csv"
 
     CMD_S32="\"$SPARK_HOME/bin/spark-sql\" $HIVE_SETTINGS --hiveconf DATA_PATH='$CSV_DB_PATH' -S -f '$BASE_DIR/analysisis_32/spark_sql/spark_sql_3_2.sql'"
@@ -137,7 +143,7 @@ do
     fi
     
     # Pulizia a fine loop
-    rm -rf temp_spark_core_out temp_*.csv tmp_csv_db
+    rm -rf temp_spark_core_out temp_*.csv tmp_csv_db /tmp/hive_run_31.sql /tmp/hive_run_32.sql
 done
 
 echo "✅ OPERAZIONE COMPLETATA! Risultati CSV salvati solo per il 100%."

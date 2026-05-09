@@ -16,10 +16,12 @@ for line in sys.stdin:
             month = tokens[0]
             origin = tokens[4]
             
-            # dep_delay (se vuoto mettiamo 0.0)
-            dep_delay_str = tokens[6] if tokens[6] else "0.0"
+            dep_delay_str = tokens[6]
+            arr_delay_str = tokens[7]
             cancelled_str = tokens[8]
-            
+            # cancellation_code (col 9): A/B/C/D o vuoto per voli non cancellati
+            canc_code = tokens[9].strip() if tokens[9].strip() else ""
+
             # Cause di ritardo (colonne 10-14)
             carrier = tokens[10]
             weather = tokens[11]
@@ -29,9 +31,9 @@ for line in sys.stdin:
 
             # Chiave: aeroporto_partenza, mese
             key = f"{origin},{month}"
-            
-            # Valore: tutti i parametri che servono per i conteggi
-            value = f"{dep_delay_str},{cancelled_str},{carrier},{weather},{nas},{security},{late}"
+
+            # Valore: dep_delay, arr_delay, cancelled, cancellation_code, cause delay
+            value = f"{dep_delay_str},{arr_delay_str},{cancelled_str},{canc_code},{carrier},{weather},{nas},{security},{late}"
             
             print(f"{key}\t{value}")
             

@@ -14,9 +14,10 @@ for line in sys.stdin:
             carrier = tokens[2]
             origin = tokens[4]
             
-            # Se i ritardi sono vuoti, li forziamo a 0.0
-            dep_delay_str = tokens[6] if tokens[6] else "0.0"
-            arr_delay_str = tokens[7] if tokens[7] else "0.0"
+            # Per allineare alla logica SQL: lasciamo vuoti i ritardi mancanti
+            # (verranno esclusi dalla media nel reducer, non trattati come 0.0)
+            dep_delay_str = tokens[6] if tokens[6] else ""
+            arr_delay_str = tokens[7] if tokens[7] else ""
             cancelled_str = tokens[8]
 
             # La chiave è solo l'aeroporto.

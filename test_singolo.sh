@@ -16,7 +16,10 @@ export SPARK_LOCAL_IP="127.0.0.1"
 export HADOOP_OPTS="$HADOOP_OPTS -Djava.net.preferIPv4Stack=true"
 export HADOOP_HEAPSIZE=2048
 
-HIVE_SETTINGS="--hiveconf mapreduce.framework.name=local --hiveconf mapreduce.map.memory.mb=2048 --hiveconf mapreduce.reduce.memory.mb=2048"
+HIVE_SETTINGS="--hiveconf fs.defaultFS=file:/// --hiveconf hive.metastore.warehouse.dir=file://$BASE_DIR/hive_warehouse --hiveconf hive.exec.scratchdir=file:///tmp/hive_scratch --hiveconf mapreduce.framework.name=local --hiveconf mapreduce.map.memory.mb=2048 --hiveconf mapreduce.reduce.memory.mb=2048"
+mkdir -p "$BASE_DIR/hive_warehouse" /tmp/hive_scratch
+chmod 1777 /tmp/hive_scratch 2>/dev/null
+chmod 1777 "$BASE_DIR/hive_warehouse" 2>/dev/null
 FILTRO_PULIZIA="op_unique_carrier|origin|aeroporto_partenza|codice|NULL"
 
 DATASET_CSV="$BASE_DIR/data/cleaned/dataset_10.csv"
@@ -55,7 +58,12 @@ CSV_DB_PATH="file://$BASE_DIR/tmp_csv_db"
 if [ ! -d "$BASE_DIR/metastore_db" ]; then
     "$HIVE_HOME/bin/schematool" -dbType derby -initSchema > /dev/null 2>&1
 fi
-"$HIVE_HOME/bin/hive" $HIVE_SETTINGS --hiveconf DATA_PATH="$CSV_DB_PATH" -f "$BASE_DIR/analysisis_31/hive/setup_table.sql" > /dev/null 2>&1
+
+# Genera file SQL combinati (setup + query) per Hive — una sola sessione Derby
+cat "$BASE_DIR/analysisis_31/hive/setup_table.sql" \
+    "$BASE_DIR/analysisis_31/hive/hive_3_1.sql" > /tmp/hive_run_31.sql
+cat "$BASE_DIR/analysisis_32/hive/setup_table.sql" \
+    "$BASE_DIR/analysisis_32/hive/hive_3_2.sql" > /tmp/hive_run_32.sql
 
 echo ">> Database pronto! Avvio dell'elaborazione..."
 echo "----------------------------------------"
@@ -65,9 +73,9 @@ echo "----------------------------------------"
 # ================= HIVE =================
 if [ "$TECH_SCELTA" == "1" ]; then
     if [ "$ANALISI_SCELTA" == "1" ]; then
-        "$HIVE_HOME/bin/hive" $HIVE_SETTINGS --hiveconf DATA_PATH="$CSV_DB_PATH" -S -f "$BASE_DIR/analysisis_31/hive/hive_3_1.sql" | tr '\t' ',' | grep -vE "$FILTRO_PULIZIA" | head -n 10
+        "$HIVE_HOME/bin/hive" $HIVE_SETTINGS --hiveconf DATA_PATH="$CSV_DB_PATH" -S -f "/tmp/hive_run_31.sql" 2>>hive_run.log | tr '\t' ',' | grep -vE "$FILTRO_PULIZIA|^OK$|^Time taken" | head -n 10
     elif [ "$ANALISI_SCELTA" == "2" ]; then
-        "$HIVE_HOME/bin/hive" $HIVE_SETTINGS --hiveconf DATA_PATH="$CSV_DB_PATH" -S -f "$BASE_DIR/analysisis_32/hive/hive_3_2.sql" | tr '\t' ',' | grep -vE "$FILTRO_PULIZIA" | head -n 10
+        "$HIVE_HOME/bin/hive" $HIVE_SETTINGS --hiveconf DATA_PATH="$CSV_DB_PATH" -S -f "/tmp/hive_run_32.sql" 2>>hive_run.log | tr '\t' ',' | grep -vE "$FILTRO_PULIZIA|^OK$|^Time taken" | head -n 10
     elif [ "$ANALISI_SCELTA" == "3" ]; then
         echo "Errore: Non hai un file hive_3_3.sql. (Hai usato Hive per la 3.3?)"
     fi

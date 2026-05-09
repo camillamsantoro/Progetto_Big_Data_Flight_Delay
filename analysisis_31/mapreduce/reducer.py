@@ -9,6 +9,7 @@ max_delay = float('-inf')
 valid_min_found = False
 valid_max_found = False
 sum_delay = 0.0
+arr_count = 0
 
 def emit_result():
     """Funzione per stampare il risultato aggregato di una chiave in formato CSV."""
@@ -21,7 +22,7 @@ def emit_result():
         # Logica dei coalesce: se non abbiamo trovato valori validi, stampiamo 0.0
         final_min = min_delay if valid_min_found else 0.0
         final_max = max_delay if valid_max_found else 0.0
-        final_avg = sum_delay / total_flights
+        final_avg = sum_delay / arr_count if arr_count > 0 else 0.0
         cancellation_rate = (cancelled_count * 100.0) / total_flights
         
         # Formato di output CSV: codice, aeroporto_partenza, numero_voli, ritardo_minimo, ritardo_massimo, ritardo_medio, tasso_cancellazione, mese
@@ -37,8 +38,6 @@ for line in sys.stdin:
         # Separiamo la chiave dal valore usando il TAB
         key, value = line.split("\t", 1)
         arr_delay_str, cancelled_str = value.split(",")
-        
-        arr_delay = float(arr_delay_str)
         cancelled = int(cancelled_str)
     except ValueError:
         continue # Salta righe malformate
@@ -55,6 +54,7 @@ for line in sys.stdin:
         valid_min_found = False
         valid_max_found = False
         sum_delay = 0.0
+        arr_count = 0
         
     # Aggiorniamo i contatori per la chiave corrente
     total_flights += 1
@@ -62,15 +62,14 @@ for line in sys.stdin:
     if cancelled == 1:
         cancelled_count += 1
     else:
-        if arr_delay >= 1.0:
+        arr_delay = float(arr_delay_str) if arr_delay_str else None
+        if arr_delay is not None:
             min_delay = min(min_delay, arr_delay)
             valid_min_found = True
-        max_delay = max(max_delay, arr_delay)
-        valid_max_found = True
-        
-    # greatest(0, coalesce(arr_delay, 0)) per la media
-    delay_for_avg = max(0.0, arr_delay)
-    sum_delay += delay_for_avg
+            max_delay = max(max_delay, arr_delay)
+            valid_max_found = True
+            sum_delay += arr_delay
+            arr_count += 1
 
 # Assicuriamoci di emettere l'ultimo gruppo elaborato
 emit_result()

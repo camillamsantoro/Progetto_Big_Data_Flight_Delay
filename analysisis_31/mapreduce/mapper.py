@@ -18,8 +18,7 @@ for line in sys.stdin:
             carrier = tokens[2]
             origin = tokens[4]
             
-            # Se per qualche motivo arr_delay è vuoto, lo forziamo a 0.0
-            arr_delay_str = tokens[7] if tokens[7] else "0.0"
+            arr_delay_str = tokens[7]
             cancelled_str = tokens[8]
 
             # Chiave composta: codice_compagnia, aeroporto, mese
