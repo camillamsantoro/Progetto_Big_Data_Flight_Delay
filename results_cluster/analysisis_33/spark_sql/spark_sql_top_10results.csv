@@ -1,0 +1,11 @@
+aeroporto_partenza,compagnia,numero_voli,ritardo_medio_partenza,ritardo_medio_arrivo,tasso_cancellazione,differenza,classifica
+ABE,9E,935,10.88,3.93,1.5,-3.45,1
+ABE,G4,1631,11.05,5.62,1.8,-3.28,2
+ABE,OH,999,17.1,8.23,1.5,2.77,3
+ABE,OO,283,35.3,29.38,4.2,20.97,4
+ABI,MQ,1756,7.27,4.43,0.9,0.0,1
+ABQ,AA,2994,17.44,14.93,2.1,8.14,8
+ABQ,AS,409,9.11,5.93,1.0,-0.19,5
+ABQ,B6,249,50.43,47.05,2.0,41.13,9
+ABQ,DL,1500,2.15,-4.69,0.9,-7.15,1
+ABQ,MQ,901,5.36,3.51,0.7,-3.94,3

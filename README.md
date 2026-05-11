@@ -295,3 +295,111 @@ In `benchmarks/charts/`:
 - **3.1 ABE/9E/mese=1**: tutte e 3 le tecnologie restituiscono `9E,ABE,71,-28.0,438.0,21.29,0.0,1`
 - **3.2 ABE/mese=1**: identico su tutte e 3 (`230,-4.59,-9.83,31,34.32,32.5,30,241.3,234.03,...`)
 - **3.3 ABE/9E**: identico su tutte e 3 (`935,10.88,3.93,1.5,-3.45,1`) salvo arrotondamento ±0.01 nella colonna `differenza` per MapReduce
+
+---
+
+## 9. Esecuzione su cluster AWS EMR
+
+La specifica del progetto raccomanda di confrontare i tempi locali con quelli su cluster. Il progetto è configurato per girare anche su un cluster Amazon EMR usando i crediti AWS Academy.
+
+### 9.1 Architettura
+
+```
+Laptop (locale)                       AWS Cloud
+┌─────────────────────────┐          ┌──────────────────────────┐
+│ data/cleaned/*.csv      │ ──upload→│ s3://<bucket>/data/      │
+│ analysisis_3{1,2,3}/*   │          │ s3://<bucket>/code/      │
+│ cluster/run_cluster.sh  │          │                          │
+└─────────────────────────┘          │  ┌────────────────────┐  │
+                                      │  │   EMR cluster       │  │
+                                      │  │  (1 master + 2     │  │
+                                      │  │   core m5.xlarge)  │  │
+                                      │  │                    │  │
+                                      │  │  HDFS  ←─ S3       │  │
+                                      │  │  Hive, Spark, MR   │  │
+                                      │  │  → benchmarks_     │  │
+                                      │  │    cluster.csv     │  │
+                                      │  └────────────────────┘  │
+                                      │             ↓            │
+┌─────────────────────────┐ ←─download│ s3://<bucket>/results/   │
+│ results_cluster/        │           │ s3://<bucket>/           │
+│ benchmarks_cluster/     │           │   benchmarks_cluster.csv │
+│   benchmarks_cluster.csv│           └──────────────────────────┘
+│   charts_cluster/       │
+└─────────────────────────┘
+```
+
+### 9.2 File e cartelle aggiunti per il cluster
+
+```
+flight-delay-bigdata1/
+├── cluster/                                ← script per eseguire su cluster
+│   ├── upload_to_s3.sh                     ← (locale) carica dati+codice su S3
+│   ├── run_cluster.sh                      ← (sul master EMR) esegue 9 job × 6 dataset
+│   ├── download_results.sh                 ← (locale) scarica risultati e benchmark
+│   └── cluster_setup.md                    ← guida step-by-step (AWS Academy + EMR)
+│
+├── benchmarks_cluster/                     ← speculare a benchmarks/
+│   ├── benchmarks_cluster.csv              ← tempi cluster (popolato da download)
+│   ├── charts_cluster/                     ← grafici cluster (popolati da generate)
+│   └── generate_charts_cluster.py          ← genera i 3 grafici cluster
+│
+└── results_cluster/                        ← speculare a results/
+    ├── analysis_31/{hive,spark_sql,mapreduce}/
+    │   ├── *_full_results.csv
+    │   └── *_top_10results.csv
+    ├── analysisis_32/{hive,spark_sql,mapreduce}/
+    │   └── ... stessi 2 file per ciascuna tecnologia
+    └── analysisis_33/{spark_core,spark_sql,mapreduce}/
+        └── ... stessi 2 file per ciascuna tecnologia
+```
+
+### 9.3 Esecuzione in 3 step
+
+```bash
+# Prerequisito: aws CLI configurato con credenziali AWS Academy attive
+# (vedi cluster/cluster_setup.md per i dettagli)
+
+# 1) Upload dati e codice su S3 (da locale, una sola volta)
+bash cluster/upload_to_s3.sh flight-delay-bigdata-tuonome-2026
+
+# 2) Lancia EMR (console o CLI) → SSH al master → esegui:
+#    aws s3 cp s3://flight-delay-bigdata-tuonome-2026/code/run_cluster.sh .
+#    S3_BUCKET=flight-delay-bigdata-tuonome-2026 bash run_cluster.sh
+
+# 3) Scarica risultati e benchmark sul laptop
+bash cluster/download_results.sh flight-delay-bigdata-tuonome-2026
+
+# 4) Genera i grafici cluster
+python3 benchmarks_cluster/generate_charts_cluster.py
+```
+
+Lo script `run_cluster.sh` esegue in vera modalità distribuita:
+- **Hive** e **Spark SQL** su YARN/EMR con storage HDFS
+- **Spark Core 3.3** via `spark-submit --master yarn --deploy-mode cluster`
+- **MapReduce** via `hadoop jar hadoop-streaming.jar` (vera esecuzione distribuita, non pipe Unix)
+
+### 9.4 Confronto locale vs cluster
+
+Una volta scaricati i risultati cluster:
+
+```bash
+# Confronto tempi
+diff <(sort benchmarks/benchmarks.csv) <(sort benchmarks_cluster/benchmarks_cluster.csv)
+
+# Coerenza dati 100% (devono essere identici a meno di arrotondamenti float)
+diff results/analysis_31/hive/hive_full_results.csv \
+     results_cluster/analysis_31/hive/hive_full_results.csv
+```
+
+### 9.5 Costi
+
+Costo stimato per un'esecuzione completa (3 nodi `m5.xlarge` × ~1h): **< $1**.
+Con $50 di crediti AWS Academy hai margine per ripetere il run molte volte.
+
+> ⚠️ **Importante**: terminare sempre il cluster a fine sessione per non bruciare crediti:
+> ```bash
+> aws emr terminate-clusters --cluster-ids <cluster-id>
+> ```
+
+Per la guida operativa completa (avvio Learner Lab, IAM, key pair, SSH, troubleshooting) → vedi [cluster/cluster_setup.md](cluster/cluster_setup.md).

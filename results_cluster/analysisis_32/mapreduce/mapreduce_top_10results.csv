@@ -1,0 +1,11 @@
+aeroporto_partenza,mese,numero_ritardi_basso,dep_avg_basso,arr_avg_basso,numero_ritardi_medio,dep_avg_medio,arr_avg_medio,numero_ritardo_alto,dep_avg_alto,arr_avg_alto,cause_maggiori
+ABE,1,230,-4.59,-9.83,31,34.32,32.5,30,241.3,234.03,"['NAS (46 voli)', 'Carrier (32 voli)', 'Late Aircraft (32 voli)']",
+ABE,12,242,-4.22,-9.88,34,32.5,24.58,33,192.33,185.21,"['Carrier (47 voli)', 'Late Aircraft (37 voli)', 'NAS (32 voli)']",
+ABE,4,254,-5.6,-13.7,29,33.45,27.66,29,258.66,250.38,"['Carrier (28 voli)', 'Late Aircraft (26 voli)', 'NAS (21 voli)']",
+ABE,7,270,-6.11,-9.47,41,34.61,30.15,37,138.08,137.08,"['Carrier (54 voli)', 'Late Aircraft (48 voli)', 'NAS (40 voli)']",
+ABI,11,127,-4.5,-9.21,8,31.12,25.5,6,106.17,105.0,"['Weather (8 voli)', 'Late Aircraft (7 voli)', 'NAS (6 voli)']",
+ABI,3,120,-4.21,-6.95,13,24.08,27.08,12,132.67,134.08,"['Late Aircraft (17 voli)', 'NAS (16 voli)', 'Weather (8 voli)']",
+ABI,6,112,-4.65,-10.25,18,28.33,25.72,13,116.54,108.77,"['Late Aircraft (20 voli)', 'NAS (14 voli)', 'Carrier (10 voli)']",
+ABI,9,124,-5.33,-8.06,14,28.43,23.43,8,108.88,99.12,"['Late Aircraft (11 voli)', 'Carrier (10 voli)', 'NAS (9 voli)']",
+ABQ,1,1436,-3.17,-8.06,200,30.94,26.28,116,137.95,134.59,"['Late Aircraft (198 voli)', 'NAS (170 voli)', 'Carrier (145 voli)']",
+ABQ,12,1655,-3.05,-8.71,223,30.12,23.94,89,158.9,161.71,"['Late Aircraft (189 voli)', 'Carrier (161 voli)', 'NAS (137 voli)']",
