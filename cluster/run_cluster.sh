@@ -93,7 +93,7 @@ save_to_s3() {
     local SRC_LOCAL="$1" HEADER="$2" S3_FULL="$3" S3_TOP10="$4"
     {
         echo "$HEADER"
-        grep -vE "$FILTRO_PULIZIA" "$SRC_LOCAL" | tr '\t' ','
+        grep -vE "$FILTRO_PULIZIA" "$SRC_LOCAL" | tr '\t' ',' | sed 's/,$//'
     } > /tmp/full.csv
     head -n 11 /tmp/full.csv > /tmp/top10.csv
     aws s3 cp /tmp/full.csv  "$S3_FULL"  --only-show-errors
@@ -101,10 +101,17 @@ save_to_s3() {
     rm -f /tmp/full.csv /tmp/top10.csv
 }
 
-# Concatena part-* di un output Hadoop (HDFS) in un file locale TSV/CSV
+# Concatena part-* di un output Hadoop (HDFS) in un file locale TSV/CSV.
+# Su EMR i job MR usano >1 reducer per default: ogni part-NNNNN è ordinato
+# internamente ma la concatenazione non lo è globalmente. Con SORT_OPTS si
+# applica un sort finale per emulare l'output single-reducer (locale).
 hdfs_collect() {
-    local HDFS_DIR="$1" OUT_LOCAL="$2"
-    hadoop fs -cat "$HDFS_DIR/part-*" > "$OUT_LOCAL" 2>/dev/null
+    local HDFS_DIR="$1" OUT_LOCAL="$2" SORT_OPTS="${3:-}"
+    if [ -n "$SORT_OPTS" ]; then
+        hadoop fs -cat "$HDFS_DIR/part-*" 2>/dev/null | sort $SORT_OPTS > "$OUT_LOCAL"
+    else
+        hadoop fs -cat "$HDFS_DIR/part-*" > "$OUT_LOCAL" 2>/dev/null
+    fi
 }
 
 # ============================================================
@@ -120,8 +127,8 @@ for P in "${PERCENTUALI[@]}"; do
     DATA_DIR="$HDFS_DATA/staging_${P}/"
 
     # ----------- File SQL combinati (setup + query) -----------
-    cat analysisis_31/hive/setup_table.sql analysisis_31/hive/hive_3_1.sql > /tmp/h31.sql
-    cat analysisis_32/hive/setup_table.sql analysisis_32/hive/hive_3_2.sql > /tmp/h32.sql
+    cat analysis_31/hive/setup_table.sql analysis_31/hive/hive_3_1.sql > /tmp/h31.sql
+    cat analysis_32/hive/setup_table.sql analysis_32/hive/hive_3_2.sql > /tmp/h32.sql
 
     # ============================================================
     # ANALISI 3.1
@@ -130,7 +137,7 @@ for P in "${PERCENTUALI[@]}"; do
         "hive -S --hiveconf DATA_PATH='$DATA_DIR' -f /tmp/h31.sql > /tmp/hive_31.tsv"
 
     cron "$P" 3.1 Spark_SQL \
-        "spark-sql -S --hiveconf DATA_PATH='$DATA_DIR' -f analysisis_31/spark_sql/spark_sql_3_1.sql > /tmp/ssql_31.tsv"
+        "spark-sql -S --hiveconf DATA_PATH='$DATA_DIR' -f analysis_31/spark_sql/spark_sql_3_1.sql > /tmp/ssql_31.tsv"
 
     hadoop fs -rm -r -f "$HDFS_TMP/mr_31_${P}" >/dev/null 2>&1
     cron "$P" 3.1 MapReduce \
@@ -139,8 +146,8 @@ for P in "${PERCENTUALI[@]}"; do
             -output '$HDFS_TMP/mr_31_${P}' \
             -mapper 'python3 mapper.py' \
             -reducer 'python3 reducer.py' \
-            -file analysisis_31/mapreduce/mapper.py \
-            -file analysisis_31/mapreduce/reducer.py"
+            -file analysis_31/mapreduce/mapper.py \
+            -file analysis_31/mapreduce/reducer.py"
 
     # ============================================================
     # ANALISI 3.2
@@ -149,7 +156,7 @@ for P in "${PERCENTUALI[@]}"; do
         "hive -S --hiveconf DATA_PATH='$DATA_DIR' -f /tmp/h32.sql > /tmp/hive_32.tsv"
 
     cron "$P" 3.2 Spark_SQL \
-        "spark-sql -S --hiveconf DATA_PATH='$DATA_DIR' -f analysisis_32/spark_sql/spark_sql_3_2.sql > /tmp/ssql_32.tsv"
+        "spark-sql -S --hiveconf DATA_PATH='$DATA_DIR' -f analysis_32/spark_sql/spark_sql_3_2.sql > /tmp/ssql_32.tsv"
 
     hadoop fs -rm -r -f "$HDFS_TMP/mr_32_${P}" >/dev/null 2>&1
     cron "$P" 3.2 MapReduce \
@@ -158,8 +165,8 @@ for P in "${PERCENTUALI[@]}"; do
             -output '$HDFS_TMP/mr_32_${P}' \
             -mapper 'python3 mapper_3_2.py' \
             -reducer 'python3 reducer_3_2.py' \
-            -file analysisis_32/mapreduce/mapper_3_2.py \
-            -file analysisis_32/mapreduce/reducer_3_2.py"
+            -file analysis_32/mapreduce/mapper_3_2.py \
+            -file analysis_32/mapreduce/reducer_3_2.py"
 
     # ============================================================
     # ANALISI 3.3
@@ -167,11 +174,11 @@ for P in "${PERCENTUALI[@]}"; do
     hadoop fs -rm -r -f "$HDFS_TMP/sc_33_${P}" >/dev/null 2>&1
     cron "$P" 3.3 Spark_Core \
         "spark-submit --master yarn --deploy-mode cluster \
-            analysisis_33/spark_core/spark_core_3_3_.py \
+            analysis_33/spark_core/spark_core_3_3_.py \
             '$DATA_FILE' '$HDFS_TMP/sc_33_${P}'"
 
     cron "$P" 3.3 Spark_SQL \
-        "spark-sql -S --hiveconf DATA_PATH='$DATA_DIR' -f analysisis_33/spark_sql/spark_sql_3_3.sql > /tmp/ssql_33.tsv"
+        "spark-sql -S --hiveconf DATA_PATH='$DATA_DIR' -f analysis_33/spark_sql/spark_sql_3_3.sql > /tmp/ssql_33.tsv"
 
     hadoop fs -rm -r -f "$HDFS_TMP/mr_33_${P}" >/dev/null 2>&1
     cron "$P" 3.3 MapReduce \
@@ -180,8 +187,8 @@ for P in "${PERCENTUALI[@]}"; do
             -output '$HDFS_TMP/mr_33_${P}' \
             -mapper 'python3 mapper_3_3.py' \
             -reducer 'python3 reducer_3_3.py' \
-            -file analysisis_33/mapreduce/mapper_3_3.py \
-            -file analysisis_33/mapreduce/reducer_3_3.py"
+            -file analysis_33/mapreduce/mapper_3_3.py \
+            -file analysis_33/mapreduce/reducer_3_3.py"
 
     # ============================================================
     # SALVATAGGIO RISULTATI 100% SU S3
@@ -197,35 +204,35 @@ for P in "${PERCENTUALI[@]}"; do
         save_to_s3 /tmp/ssql_31.tsv "$HEADER_31" \
             "s3://$S3_BUCKET/results/analysis_31/spark_sql/spark_sql_full_results.csv" \
             "s3://$S3_BUCKET/results/analysis_31/spark_sql/spark_sql_top_10results.csv"
-        hdfs_collect "$HDFS_TMP/mr_31_${P}" /tmp/mr_31.tsv
+        hdfs_collect "$HDFS_TMP/mr_31_${P}" /tmp/mr_31.tsv "-t, -k1,1 -k2,2 -k8,8"
         save_to_s3 /tmp/mr_31.tsv "$HEADER_31" \
             "s3://$S3_BUCKET/results/analysis_31/mapreduce/mapreduce_full_results.csv" \
             "s3://$S3_BUCKET/results/analysis_31/mapreduce/mapreduce_top_10results.csv"
 
         # 3.2
         save_to_s3 /tmp/hive_32.tsv "$HEADER_32" \
-            "s3://$S3_BUCKET/results/analysisis_32/hive/hive_full_results.csv" \
-            "s3://$S3_BUCKET/results/analysisis_32/hive/hive_top_10results.csv"
+            "s3://$S3_BUCKET/results/analysis_32/hive/hive_full_results.csv" \
+            "s3://$S3_BUCKET/results/analysis_32/hive/hive_top_10results.csv"
         save_to_s3 /tmp/ssql_32.tsv "$HEADER_32" \
-            "s3://$S3_BUCKET/results/analysisis_32/spark_sql/spark_sql_full_results.csv" \
-            "s3://$S3_BUCKET/results/analysisis_32/spark_sql/spark_sql_top_10results.csv"
-        hdfs_collect "$HDFS_TMP/mr_32_${P}" /tmp/mr_32.tsv
+            "s3://$S3_BUCKET/results/analysis_32/spark_sql/spark_sql_full_results.csv" \
+            "s3://$S3_BUCKET/results/analysis_32/spark_sql/spark_sql_top_10results.csv"
+        hdfs_collect "$HDFS_TMP/mr_32_${P}" /tmp/mr_32.tsv "-t, -k1,1 -k2,2"
         save_to_s3 /tmp/mr_32.tsv "$HEADER_32" \
-            "s3://$S3_BUCKET/results/analysisis_32/mapreduce/mapreduce_full_results.csv" \
-            "s3://$S3_BUCKET/results/analysisis_32/mapreduce/mapreduce_top_10results.csv"
+            "s3://$S3_BUCKET/results/analysis_32/mapreduce/mapreduce_full_results.csv" \
+            "s3://$S3_BUCKET/results/analysis_32/mapreduce/mapreduce_top_10results.csv"
 
         # 3.3
         hdfs_collect "$HDFS_TMP/sc_33_${P}" /tmp/sc_33.tsv
         save_to_s3 /tmp/sc_33.tsv "$HEADER_33" \
-            "s3://$S3_BUCKET/results/analysisis_33/spark_core/spark_core_full_results.csv" \
-            "s3://$S3_BUCKET/results/analysisis_33/spark_core/spark_core_top_10results.csv"
+            "s3://$S3_BUCKET/results/analysis_33/spark_core/spark_core_full_results.csv" \
+            "s3://$S3_BUCKET/results/analysis_33/spark_core/spark_core_top_10results.csv"
         save_to_s3 /tmp/ssql_33.tsv "$HEADER_33" \
-            "s3://$S3_BUCKET/results/analysisis_33/spark_sql/spark_sql_full_results.csv" \
-            "s3://$S3_BUCKET/results/analysisis_33/spark_sql/spark_sql_top_10results.csv"
-        hdfs_collect "$HDFS_TMP/mr_33_${P}" /tmp/mr_33.tsv
+            "s3://$S3_BUCKET/results/analysis_33/spark_sql/spark_sql_full_results.csv" \
+            "s3://$S3_BUCKET/results/analysis_33/spark_sql/spark_sql_top_10results.csv"
+        hdfs_collect "$HDFS_TMP/mr_33_${P}" /tmp/mr_33.tsv "-t, -k1,1 -k8,8n"
         save_to_s3 /tmp/mr_33.tsv "$HEADER_33" \
-            "s3://$S3_BUCKET/results/analysisis_33/mapreduce/mapreduce_full_results.csv" \
-            "s3://$S3_BUCKET/results/analysisis_33/mapreduce/mapreduce_top_10results.csv"
+            "s3://$S3_BUCKET/results/analysis_33/mapreduce/mapreduce_full_results.csv" \
+            "s3://$S3_BUCKET/results/analysis_33/mapreduce/mapreduce_top_10results.csv"
     fi
 
     # Pulizia file temporanei locali

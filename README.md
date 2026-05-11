@@ -1,405 +1,509 @@
-# Flight Delay Analysis — Big Data Project
+# Flight Delay 2024 — Analisi comparativa Big Data
 
-Progetto del corso di **Big Data** (Università degli Studi Roma Tre, Prof. R. Torlone).
-Analisi sperimentale del dataset [Flight Delay 2024 di Kaggle](https://www.kaggle.com/datasets/hrishitpatil/flight-data-2024) (~7M record, 35 colonne) usando **MapReduce**, **Hive**, **Spark Core** e **Spark SQL**, con confronto comparativo di efficienza e scalabilità.
+**Università degli Studi Roma Tre — Corso di Big Data**
+**Docente: Prof. Riccardo Torlone — Consegna: 04/06/2026**
 
-Le specifiche complete del progetto sono in `Secondo progetto.pdf`.
+Autore: Camilla Maria Santoro
 
----
-
-## 1. Tecnologie
-
-| Tecnologia | Versione | Ruolo |
-|------------|----------|-------|
-| Hadoop | 3.4.1 | Runtime per MapReduce locale |
-| Apache Hive | 2.3.9 | Query SQL su file CSV (metastore Derby embedded) |
-| Apache Spark | 3.5.8 (Hadoop 3) | Spark Core (RDD) e Spark SQL |
-| Python | 3.x | MapReduce streaming, pulizia dati, grafici |
-| Derby | embedded | Metastore Hive (locale, no server) |
-
-Tutte le tecnologie girano in **modalità locale** (no cluster, no HDFS): Hive e Hadoop sono configurati con `fs.defaultFS=file:///` per usare il filesystem locale.
+Specifica del progetto: [Secondo progetto.pdf](Secondo%20progetto.pdf)
 
 ---
 
-## 2. Struttura del progetto
+## Indice
+
+1. [Oggetto del progetto](#1-oggetto-del-progetto)
+2. [Dataset](#2-dataset)
+3. [Preparazione dei dati](#3-preparazione-dei-dati)
+4. [Analisi implementate](#4-analisi-implementate)
+5. [Tecnologie utilizzate](#5-tecnologie-utilizzate)
+6. [Struttura del repository](#6-struttura-del-repository)
+7. [Esecuzione in locale](#7-esecuzione-in-locale)
+8. [Esecuzione su cluster AWS EMR](#8-esecuzione-su-cluster-aws-emr)
+9. [Risultati](#9-risultati)
+10. [Benchmark e scalabilità](#10-benchmark-e-scalabilità)
+11. [Confronto locale vs cluster](#11-confronto-locale-vs-cluster)
+12. [Note implementative](#12-note-implementative)
+13. [Conformità alla traccia](#13-conformità-alla-traccia)
+
+---
+
+## 1. Oggetto del progetto
+
+Il progetto sperimenta l'uso comparativo di diverse tecnologie Big Data per l'analisi di un dataset reale di voli aerei (Flight Delay 2024, oltre 7 milioni di record). Per ciascuna delle tre analisi richieste dalla traccia (§3 PDF) è stata realizzata un'implementazione in **tre tecnologie diverse**, eseguita sia in **ambiente locale** (macOS) che su **cluster AWS EMR** distribuito.
+
+Gli aspetti affrontati sono: (i) progettazione delle elaborazioni, (ii) preparazione e pulizia dei dati, (iii) confronto tra tecnologie eterogenee, (iv) efficienza e scalabilità delle soluzioni al variare della dimensione dell'input.
+
+---
+
+## 2. Dataset
+
+- **Fonte**: [Flight Data 2024 — Kaggle](https://www.kaggle.com/datasets/hrishitpatil/flight-data-2024)
+- **Dimensione raw**: ~1.3 GB, ~7.000.000 record, 35 colonne
+- **Formato**: CSV
+- **Periodo coperto**: anno solare 2024
+- **Schema rilevante** (colonne usate dalle analisi):
+
+| Colonna | Tipo | Descrizione |
+|---|---|---|
+| `month` | int | Mese del volo (1–12) |
+| `op_unique_carrier` | string | Codice IATA della compagnia |
+| `origin` | string | Aeroporto di partenza |
+| `dep_delay` | float | Ritardo in partenza (minuti) |
+| `arr_delay` | float | Ritardo in arrivo (minuti) |
+| `cancelled` | int | 1 se volo cancellato, 0 altrimenti |
+| `cancellation_code` | string | A/B/C/D (causa cancellazione) |
+| `carrier_delay`, `weather_delay`, `nas_delay`, `security_delay`, `late_aircraft_delay` | float | Cause del ritardo in minuti |
+
+Il file raw va posizionato in [data/raw/flight_data_2024.csv](data/raw/) prima della preparazione (è già escluso da `.gitignore` per via della dimensione; va scaricato da Kaggle).
+
+---
+
+## 3. Preparazione dei dati
+
+La fase di preparazione è documentata nel notebook [data_preparation.ipynb](data_preparation.ipynb) ed esegue, in ordine:
+
+1. **Caricamento** di `data/raw/flight_data_2024.csv`.
+2. **Eliminazione record non significativi**: voli deviati (`diverted == 1`), record con timestamp incompleti, righe duplicate.
+3. **Normalizzazione**: tipi numerici, codici aeroporto/compagnia in maiuscolo, codici causa-cancellazione mappati a `A/B/C/D`.
+4. **Selezione colonne**: vengono mantenute solo le 15 colonne rilevanti per le analisi (vedi §2).
+5. **Trasformazione attributi temporali**: estrazione del mese.
+6. **Generazione di 6 dataset crescenti** (richiesta del §6 PDF per studi di scalabilità):
+
+| Dataset | % rispetto al pulito | Strategia |
+|---|---|---|
+| `dataset_10.csv` | 10% | Campionamento casuale stratificato |
+| `dataset_25.csv` | 25% | Campionamento casuale stratificato |
+| `dataset_50.csv` | 50% | Campionamento casuale stratificato |
+| `dataset_75.csv` | 75% | Campionamento casuale stratificato |
+| `dataset_100.csv` | 100% | Tutto il dataset pulito (~6.87M record) |
+| `dataset_150.csv` | 150% | Concatenazione di 100% + 50% (replica controllata) |
+
+I dataset sono salvati in [data/cleaned/](data/cleaned/) e sono l'input di tutti gli script di esecuzione.
+
+---
+
+## 4. Analisi implementate
+
+### 4.1 Statistiche delle compagnie aeree (§3.1 PDF)
+
+Per ogni compagnia aerea, per ciascun aeroporto di partenza e per ciascun mese:
+- numero di voli operati,
+- ritardo minimo, massimo e medio in arrivo,
+- tasso di cancellazione (%),
+- elenco dei mesi in cui la compagnia opera in quell'aeroporto.
+
+**Output**: `codice, aeroporto_partenza, numero_voli, ritardo_minimo, ritardo_massimo, ritardo_medio, tasso_cancellazione, mese` — 18.683 righe sul 100%.
+
+### 4.2 Report dei ritardi per aeroporto e periodo (§3.2 PDF)
+
+Per ciascun aeroporto di partenza e per ciascun mese:
+- numero di voli in 3 fasce di ritardo in partenza: **basso** (<15 min), **medio** (15–60 min), **alto** (>60 min),
+- per ogni fascia, ritardo medio in partenza e in arrivo,
+- le tre cause di ritardo o cancellazione più frequenti.
+
+**Output**: `aeroporto_partenza, mese, numero_ritardi_basso, dep_avg_basso, arr_avg_basso, numero_ritardi_medio, dep_avg_medio, arr_avg_medio, numero_ritardo_alto, dep_avg_alto, arr_avg_alto, cause_maggiori` — 4.039 righe sul 100%.
+
+### 4.3 Ranking compagnia-aeroporto con comportamento anomalo (§3.3 PDF)
+
+Per ciascuna coppia `(aeroporto, compagnia)`:
+- numero di voli operati,
+- ritardo medio in partenza e in arrivo,
+- tasso di cancellazione,
+- **differenza** tra il ritardo medio in partenza della compagnia e quello medio dell'aeroporto,
+- **classifica** della compagnia in quell'aeroporto, dalla migliore (rank 1, ritardo medio in partenza più basso) alla peggiore.
+
+**Output**: `aeroporto_partenza, compagnia, numero_voli, ritardo_medio_partenza, ritardo_medio_arrivo, tasso_cancellazione, differenza, classifica` — 1.738 righe sul 100%.
+
+---
+
+## 5. Tecnologie utilizzate
+
+La traccia richiede almeno 2 analisi con almeno 3 tecnologie. Il progetto realizza **tutte e 3 le analisi** con **3 tecnologie ciascuna** (totale 9 implementazioni indipendenti):
+
+| Analisi | MapReduce | Hive | Spark SQL | Spark Core |
+|---|:-:|:-:|:-:|:-:|
+| 3.1 | ✓ | ✓ | ✓ | — |
+| 3.2 | ✓ | ✓ | ✓ | — |
+| 3.3 | ✓ | — | ✓ | ✓ |
+
+### MapReduce (Hadoop Streaming in Python)
+
+Implementazione esplicita di mapper e reducer come script Python; viene eseguita tramite Hadoop Streaming. Permette controllo fine della logica di aggregazione ma richiede più codice rispetto agli approcci dichiarativi.
+
+| Analisi | Mapper | Reducer |
+|---|---|---|
+| 3.1 | [analysis_31/mapreduce/mapper.py](analysis_31/mapreduce/mapper.py) | [analysis_31/mapreduce/reducer.py](analysis_31/mapreduce/reducer.py) |
+| 3.2 | [analysis_32/mapreduce/mapper_3_2.py](analysis_32/mapreduce/mapper_3_2.py) | [analysis_32/mapreduce/reducer_3_2.py](analysis_32/mapreduce/reducer_3_2.py) |
+| 3.3 | [analysis_33/mapreduce/mapper_3_3.py](analysis_33/mapreduce/mapper_3_3.py) | [analysis_33/mapreduce/reducer_3_3.py](analysis_33/mapreduce/reducer_3_3.py) |
+
+### Hive (HQL su HDFS)
+
+SQL declarativo eseguito su Hive (motore MapReduce sottostante in locale, su YARN nel cluster). Massima espressività SQL ma overhead di startup elevato.
+
+| Analisi | Setup tabella | Query |
+|---|---|---|
+| 3.1 | [analysis_31/hive/setup_table.sql](analysis_31/hive/setup_table.sql) | [analysis_31/hive/hive_3_1.sql](analysis_31/hive/hive_3_1.sql) |
+| 3.2 | [analysis_32/hive/setup_table.sql](analysis_32/hive/setup_table.sql) | [analysis_32/hive/hive_3_2.sql](analysis_32/hive/hive_3_2.sql) |
+
+### Spark SQL
+
+Stesse query in dialetto Spark SQL, eseguite dal motore Catalyst di Spark. Pipeline ottimizzata in-memory, generalmente la tecnologia più rapida fra quelle testate.
+
+| Analisi | Setup tabella | Query |
+|---|---|---|
+| 3.1 | [analysis_31/spark_sql/setup_table.sql](analysis_31/spark_sql/setup_table.sql) | [analysis_31/spark_sql/spark_sql_3_1.sql](analysis_31/spark_sql/spark_sql_3_1.sql) |
+| 3.2 | [analysis_32/spark_sql/setup_table.sql](analysis_32/spark_sql/setup_table.sql) | [analysis_32/spark_sql/spark_sql_3_2.sql](analysis_32/spark_sql/spark_sql_3_2.sql) |
+| 3.3 | [analysis_33/spark_sql/setup_table.sql](analysis_33/spark_sql/setup_table.sql) | [analysis_33/spark_sql/spark_sql_3_3.sql](analysis_33/spark_sql/spark_sql_3_3.sql) |
+
+### Spark Core (RDD API in PySpark)
+
+API a basso livello di Spark basata su RDD, scelta per l'analisi 3.3 perché il calcolo della classifica e della differenza vs media aeroporto si esprime naturalmente con `groupByKey` + `mapValues` + `join`.
+
+Implementazione: [analysis_33/spark_core/spark_core_3_3_.py](analysis_33/spark_core/spark_core_3_3_.py).
+
+---
+
+## 6. Struttura del repository
 
 ```
 flight-delay-bigdata1/
-├── README.md                          ← questo file
-├── Secondo progetto.pdf               ← specifiche del professore
-├── pulizia 19.29.49.ipynb             ← notebook di pulizia dati
+├── README.md                     ← questo file
+├── Secondo progetto.pdf          ← traccia ufficiale
+├── data_preparation.ipynb        ← notebook di pulizia e generazione dataset
+├── run_all_analyses.sh           ← esecuzione completa in locale (9 job × 6 percentuali)
+├── test_singolo.sh               ← test rapido di un singolo job sul 10%
 │
 ├── data/
-│   ├── raw/
-│   │   └── flight_data_2024.csv       ← dataset originale (~1.2 GB, 7M record)
-│   └── cleaned/
-│       ├── dataset_10.csv  /  .parquet  ← campione 10% (~687k record)
-│       ├── dataset_25.csv  /  .parquet
-│       ├── dataset_50.csv  /  .parquet
-│       ├── dataset_75.csv  /  .parquet
-│       ├── dataset_100.csv /  .parquet  ← dataset pulito completo (~6.87M record)
-│       └── dataset_150.csv /  .parquet  ← oversampling per test scalabilità
+│   ├── raw/                      ← flight_data_2024.csv (da Kaggle, gitignored)
+│   └── cleaned/                  ← dataset_{10,25,50,75,100,150}.csv
 │
-├── analysisis_31/                     ← Analisi 3.1: statistiche compagnie aeree
-│   ├── hive/        hive_3_1.sql      + setup_table.sql
-│   ├── spark_sql/   spark_sql_3_1.sql + setup_table.sql
-│   └── mapreduce/   mapper.py         + reducer.py
+├── analysis_31/                  ← 3.1 — statistiche compagnie
+│   ├── hive/                     ← setup_table.sql + hive_3_1.sql
+│   ├── mapreduce/                ← mapper.py + reducer.py
+│   └── spark_sql/                ← setup_table.sql + spark_sql_3_1.sql
 │
-├── analysisis_32/                     ← Analisi 3.2: report ritardi per aeroporto/mese
-│   ├── hive/        hive_3_2.sql      + setup_table.sql
-│   ├── spark_sql/   spark_sql_3_2.sql + setup_table.sql
-│   └── mapreduce/   mapper_3_2.py     + reducer_3_2.py
+├── analysis_32/                  ← 3.2 — report fasce di ritardo
+│   ├── hive/
+│   ├── mapreduce/
+│   └── spark_sql/
 │
-├── analysisis_33/                     ← Analisi 3.3: ranking compagnie anomale per aeroporto
-│   ├── spark_core/  spark_core_3_3_.py
-│   ├── spark_sql/   spark_sql_3_3.sql + setup_table.sql
-│   └── mapreduce/   mapper_3_3.py     + reducer_3_3.py
+├── analysis_33/                  ← 3.3 — ranking anomalie
+│   ├── mapreduce/
+│   ├── spark_core/               ← spark_core_3_3_.py
+│   └── spark_sql/
 │
-├── results/                           ← output delle analisi (CSV) sul 100%
-│   ├── analysis_31/{hive,spark_sql,mapreduce}/
-│   │   ├── *_full_results.csv         ← tutti i record
-│   │   └── *_top_10results.csv        ← prime 10 righe (richiesta della spec)
-│   ├── analysisis_32/{hive,spark_sql,mapreduce}/
-│   └── analysisis_33/{spark_core,spark_sql,mapreduce}/
+├── cluster/                      ← esecuzione su AWS EMR
+│   ├── cluster_setup.md          ← guida step-by-step setup AWS Academy
+│   ├── upload_to_s3.sh           ← upload dati+codice su bucket S3
+│   ├── run_cluster.sh            ← script eseguito sul master EMR
+│   └── download_results.sh       ← scarica risultati S3 → locale
 │
-├── benchmarks/
-│   ├── benchmarks.csv                 ← tempi (Percentuale, Analisi, Tecnologia, Tempo_Secondi)
-│   ├── generate_charts.py             ← script grafici matplotlib/seaborn
-│   └── charts/
-│       ├── scalability_per_analysis.png
-│       ├── comparison_100pct.png
-│       └── heatmap_times.png
+├── benchmarks/                   ← benchmark locale
+│   ├── benchmarks.csv            ← tempi per (percentuale, analisi, tecnologia)
+│   ├── generate_charts.py        ← script generazione grafici
+│   └── charts/                   ← grafici PNG
 │
-├── run_all_analyses.sh                ← esegue TUTTE le analisi su 6 dataset (10–150%)
-├── debug_sandbox.sh                   ← test rapido (10%) di 4 implementazioni
-├── test_singolo.sh                    ← test interattivo singola analisi/tecnologia
+├── benchmarks_cluster/           ← benchmark cluster (stesso schema)
+│   ├── benchmarks_cluster.csv
+│   ├── generate_charts_cluster.py
+│   └── charts_cluster/
 │
-├── venv/                              ← ambiente virtuale Python
-├── metastore_db/                      ← Derby (auto-generato)
-├── hive_warehouse/                    ← warehouse Hive locale (auto-generato)
-└── hive_run.log                       ← log errori Hive (auto-generato)
+├── comparisons/                  ← confronto locale vs cluster
+│   ├── confronto_locale_cluster.ipynb
+│   └── charts/                   ← grafici di confronto
+│
+├── results/                      ← output locale al 100%
+│   ├── analysis_31/{hive,mapreduce,spark_sql}/
+│   ├── analysis_32/{hive,mapreduce,spark_sql}/
+│   └── analysis_33/{mapreduce,spark_core,spark_sql}/
+│       ↳ in ciascuna: full_results.csv + top_10results.csv
+│
+└── results_cluster/              ← output cluster al 100% (stessa struttura)
 ```
 
 ---
 
-## 3. Pulizia dati (`pulizia 19.29.49.ipynb`)
+## 7. Esecuzione in locale
 
-Il notebook prepara il dataset partendo dal CSV grezzo in `data/raw/flight_data_2024.csv`.
+### Prerequisiti
 
-**Operazioni effettuate:**
-1. Caricamento di 7.079.081 record × 35 colonne
-2. Eliminazione voli cancellati/dirottati con valori di ritardo mancanti
-3. Rimozione colonna `year` (costante = 2024)
-4. Conversione `fl_date` in datetime
-5. Selezione di 15 colonne rilevanti:
-   `month, fl_date, op_unique_carrier, op_carrier_fl_num, origin, dest, dep_delay, arr_delay, cancelled, cancellation_code, carrier_delay, weather_delay, nas_delay, security_delay, late_aircraft_delay`
-6. Imputazione delle cause di ritardo (NaN → 0)
-7. Rimozione outlier: `arr_delay` fuori range [-30, 1440] minuti (24h) → -206.367 record (2.9%)
-8. Generazione subset 10/25/50/75/100/150% (CSV + Parquet)
+| Componente | Versione testata | Note |
+|---|---|---|
+| Hadoop | 3.4.1 | Standalone mode |
+| Hive | 2.3.9 | Metastore embedded Derby |
+| Spark | 3.5.8 (`bin-hadoop3`) | |
+| Python | 3.10+ | con `pandas`, `pyspark` per la preparazione |
+| Java | OpenJDK 11 | Homebrew |
 
-**Dataset finale:** 6.872.714 record × 15 colonne (~374 MB CSV).
+Le variabili d'ambiente (`HADOOP_HOME`, `HIVE_HOME`, `SPARK_HOME`) vengono impostate dagli script stessi; modificare i path all'inizio di [run_all_analyses.sh](run_all_analyses.sh) e [test_singolo.sh](test_singolo.sh) per riflettere l'installazione locale.
 
----
-
-## 4. Le tre analisi
-
-### 4.1 — Statistiche compagnie aeree (sezione 3.1 spec)
-
-**Implementazioni:** Hive · Spark SQL · MapReduce
-
-Per ciascuna combinazione `(compagnia, aeroporto_partenza, mese)` calcola:
-- numero voli
-- ritardo arrivo: minimo, massimo, medio
-- tasso di cancellazione (%)
-- mese di operatività
-
-**Output schema (`results/analysis_31/<tech>/...`):**
-```
-codice, aeroporto_partenza, numero_voli, ritardo_minimo, ritardo_massimo, ritardo_medio, tasso_cancellazione, mese
-```
-
-### 4.2 — Report ritardi per aeroporto/mese (sezione 3.2 spec)
-
-**Implementazioni:** Hive · Spark SQL · MapReduce
-
-Per ciascuna combinazione `(aeroporto_partenza, mese)`:
-- conteggio voli in 3 fasce di ritardo in partenza: basso (<15 min), medio (15–60), alto (>60)
-- per ciascuna fascia: ritardo medio in partenza e arrivo
-- top-3 cause di ritardo o cancellazione **per frequenza** (numero voli coinvolti).
-  Le cause includono sia ritardi (carrier/weather/nas/security/late_aircraft) sia cancellazioni
-  (`cancellation_code` A=Carrier, B=Weather, C=NAS, D=Security)
-
-**Output schema:**
-```
-aeroporto_partenza, mese,
-numero_ritardi_basso, dep_avg_basso, arr_avg_basso,
-numero_ritardi_medio, dep_avg_medio, arr_avg_medio,
-numero_ritardo_alto, dep_avg_alto, arr_avg_alto,
-cause_maggiori
-```
-
-`cause_maggiori` è una lista in formato `"['Carrier (1234 voli)', 'Weather (567 voli)', 'NAS (89 voli)']"`.
-
-### 4.3 — Ranking compagnie anomale per aeroporto (sezione 3.3 spec)
-
-**Implementazioni:** Spark Core · Spark SQL · MapReduce
-
-Per ciascuna coppia `(aeroporto_partenza, compagnia)`:
-- numero voli
-- ritardo medio in partenza e in arrivo
-- tasso di cancellazione (%)
-- differenza tra ritardo medio compagnia e ritardo medio complessivo dell'aeroporto
-- classifica della compagnia in quell'aeroporto (1 = miglior performance)
-
-**Output schema:**
-```
-aeroporto_partenza, compagnia, numero_voli, ritardo_medio_partenza, ritardo_medio_arrivo, tasso_cancellazione, differenza, classifica
-```
-
----
-
-## 5. Esecuzione
-
-### 5.1 Prerequisiti
-
-- macOS / Linux
-- Java 8/11 (per Hadoop, Hive, Spark)
-- Python 3.9+ con `venv` attivo
-- Hadoop 3.4.1, Hive 2.3.9, Spark 3.5.8 installati nei percorsi indicati negli script
+### Comando one-shot (tutte le analisi su tutti i dataset)
 
 ```bash
-source venv/bin/activate
-pip install pandas matplotlib seaborn pyarrow
+bash run_all_analyses.sh
 ```
 
-### 5.2 Pulizia dati (una sola volta)
+Esegue 9 job × 6 percentuali = **54 esecuzioni**. Tempo totale tipico: 20–40 minuti su MacBook Pro M-series. Produce:
 
-Apri ed esegui in ordine tutte le celle di `pulizia 19.29.49.ipynb`. Genera i CSV/Parquet in `data/cleaned/`.
+- [results/](results/) — output del 100% (full + top 10) per le 9 implementazioni
+- [benchmarks/benchmarks.csv](benchmarks/benchmarks.csv) — tabella `(percentuale, analisi, tecnologia, tempo_secondi)`
 
-### 5.3 Test rapido
+### Smoke test rapido (un solo job al 10%)
 
 ```bash
-bash debug_sandbox.sh           # 4 mini-test su dataset 10%
-bash test_singolo.sh            # menu interattivo: scegli tecnologia + analisi
+bash test_singolo.sh
 ```
 
-### 5.4 Esecuzione completa con benchmark
+Esegue Hive 3.1 sul dataset al 10%, ~10 secondi. Utile per verificare la configurazione dell'ambiente prima del run completo.
 
-```bash
-bash run_all_analyses.sh        # 9 job × 6 dimensioni dataset = 54 esecuzioni
-```
-
-Lo script:
-- itera su `PERCENTUALI=(10 25 50 75 100 150)`
-- per ogni percentuale lancia tutte e 3 le analisi su tutte le tecnologie applicabili
-- registra i tempi in `benchmarks/benchmarks.csv`
-- salva i risultati CSV (full + top-10) in `results/` solo per il 100%
-- fa rotear le directory temporanee `tmp_csv_db/`, `temp_*.csv`, `/tmp/hive_run_*.sql`
-
-Errori Hive (se presenti) sono in `hive_run.log`.
-
-### 5.5 Generazione grafici
+### Grafici dei benchmark
 
 ```bash
 python3 benchmarks/generate_charts.py
 ```
 
-Produce in `benchmarks/charts/`:
-- `scalability_per_analysis.png` — line chart 3 subplot (uno per analisi), tempo vs % dataset, una linea per tecnologia
-- `comparison_100pct.png` — bar chart raggruppato di tutte le tecnologie sull'analisi al 100%
-- `heatmap_times.png` — heatmap completa (tecnologia×analisi vs %)
+Salva i grafici in [benchmarks/charts/](benchmarks/charts/).
 
 ---
 
-## 6. Note tecniche
+## 8. Esecuzione su cluster AWS EMR
 
-### 6.1 Hive senza HDFS
+L'intera procedura è documentata in dettaglio in [cluster/cluster_setup.md](cluster/cluster_setup.md). Sintesi:
 
-Hive di default tenta di connettersi all'HDFS NameNode su `localhost:9000`.
-In questo progetto **HDFS non è in esecuzione**, quindi configuriamo Hive per usare il filesystem locale tramite:
+### Architettura
 
-```
---hiveconf fs.defaultFS=file:///
---hiveconf hive.metastore.warehouse.dir=file://$BASE_DIR/hive_warehouse
---hiveconf hive.exec.scratchdir=file:///tmp/hive_scratch
-```
+| Risorsa | Configurazione |
+|---|---|
+| Cluster | AWS EMR `emr-7.8.0` |
+| Nodi | 1 master + 2 core (3 totali) |
+| Istanze | `m5.xlarge` (4 vCPU, 16 GB RAM) |
+| Applicazioni | Hadoop + Hive + Spark |
+| Storage | S3 per input/output durevole, HDFS effimero del cluster per intermediate |
 
-Inoltre gli script applicano `chmod 1777` sia su `/tmp/hive_scratch` che su `hive_warehouse` per consentire la creazione delle session directory di Hive in locale.
+### Workflow in 3 step
 
-### 6.2 Setup tabella + query in un'unica sessione
-
-Per evitare problemi di lock di Derby tra invocazioni multiple, gli script generano un file SQL combinato `/tmp/hive_run_*.sql` (setup + query) ed eseguono Hive una sola volta per analisi.
-
-### 6.3 Coerenza dei risultati tra tecnologie
-
-Le tre implementazioni di ciascuna analisi sono progettate per produrre output equivalenti (a meno di formattazione minore di numeri float). Le query SQL escludono i NULL dalle medie; le implementazioni Python applicano la stessa logica trattando come "assenti" i campi `dep_delay`/`arr_delay` vuoti.
-
-**Gestione NULL allineata a SQL (MapReduce 3.1, 3.2, 3.3)**: i mapper emettono stringa vuota per `arr_delay` (e `dep_delay` per 3.2) mancante; i reducer parsano `""` come `None` e usano un contatore separato `arr_count` (incrementato solo quando il valore è presente) come denominatore della media. Questo replica la semantica di `AVG(CASE WHEN cancelled=0 THEN arr_delay END)` di Hive/Spark SQL, che ignora i NULL. Senza questo fix, l'output MapReduce per ABE/9E/mese=1 mostrava `ritardo_medio = 20.99` contro il valore corretto 21.29 di Hive/Spark SQL — discrepanza causata da 1 volo con `arr_delay` NULL trattato erroneamente come 0.0.
-
-L'analisi 3.3 in Spark Core usa `.sortBy + .coalesce(1)` per garantire l'ordinamento globale per `(aeroporto, classifica)` allineato a MapReduce e Spark SQL.
-
-### 6.4 Ordinamento output MapReduce
-
-L'output MapReduce per le analisi 3.1 e 3.2 segue l'ordinamento lessicografico del comando `sort` Unix (es. mesi `1, 10, 11, 12, 2, 3, ...` invece di `1, 2, ..., 12`). I valori dei dati sono identici a Hive/Spark SQL — cambia solo l'ordine delle righe nel file. È una caratteristica nota della pipeline `mapper | sort | reducer` con chiavi stringa.
-
----
-
-## 7. Riproducibilità
-
-Per replicare i risultati pubblicati:
-
-1. Posizionare `flight_data_2024.csv` in `data/raw/`
-2. Eseguire il notebook `pulizia 19.29.49.ipynb`
-3. `bash run_all_analyses.sh`
-4. `python3 benchmarks/generate_charts.py`
-5. Risultati in `results/`, tempi in `benchmarks/benchmarks.csv`, grafici in `benchmarks/charts/`
-
----
-
-## 8. Risultati e benchmark sintetici
-
-### Tempi di esecuzione al 100% (~6.87M record, locale Mac)
-
-| Analisi | Hive | Spark SQL | Spark Core | MapReduce |
-|---------|------|-----------|------------|-----------|
-| 3.1     | 12s  | 6s        | —          | 14s       |
-| 3.2     | 40s  | 11s       | —          | 21s       |
-| 3.3     | —    | 6s        | 6s         | 15s       |
-
-### Scaling (MapReduce, esempio)
-
-| Dataset | 3.1 | 3.2 | 3.3 |
-|---------|-----|-----|-----|
-| 10%     | 2s  | 2s  | 1s  |
-| 50%     | 7s  | 10s | 8s  |
-| 100%    | 14s | 21s | 15s |
-| 150%    | 19s | 30s | 23s |
-
-MapReduce mostra scaling lineare pulito. Spark SQL e Spark Core appaiono "piatti" su 3.1 e 3.3 perché il startup JVM (~4-5s) domina il tempo di calcolo effettivo (<1s) sui dataset locali. Hive 3.2 è la più lenta (40s) per via di window functions + UNION ALL + collect_list eseguiti su Derby+MapReduce locale.
-
-### Numero di righe output al 100%
-
-- **3.1**: 18.684 righe (combinazioni `carrier × origin × month`)
-- **3.2**: 4.040 righe (combinazioni `origin × month`)
-- **3.3**: 1.739 righe (combinazioni `origin × carrier`)
-
-### Grafici generati
-
-In `benchmarks/charts/`:
-- `scalability_per_analysis.png` — line chart con 3 subplot (uno per analisi), tempo vs % dataset, una linea per tecnologia
-- `comparison_100pct.png` — bar chart raggruppato di tutte le tecnologie sull'analisi al 100%
-- `heatmap_times.png` — heatmap completa (tecnologia × analisi vs %)
-
-### Coerenza cross-tecnologia (campioni verificati)
-
-- **3.1 ABE/9E/mese=1**: tutte e 3 le tecnologie restituiscono `9E,ABE,71,-28.0,438.0,21.29,0.0,1`
-- **3.2 ABE/mese=1**: identico su tutte e 3 (`230,-4.59,-9.83,31,34.32,32.5,30,241.3,234.03,...`)
-- **3.3 ABE/9E**: identico su tutte e 3 (`935,10.88,3.93,1.5,-3.45,1`) salvo arrotondamento ±0.01 nella colonna `differenza` per MapReduce
-
----
-
-## 9. Esecuzione su cluster AWS EMR
-
-La specifica del progetto raccomanda di confrontare i tempi locali con quelli su cluster. Il progetto è configurato per girare anche su un cluster Amazon EMR usando i crediti AWS Academy.
-
-### 9.1 Architettura
-
-```
-Laptop (locale)                       AWS Cloud
-┌─────────────────────────┐          ┌──────────────────────────┐
-│ data/cleaned/*.csv      │ ──upload→│ s3://<bucket>/data/      │
-│ analysisis_3{1,2,3}/*   │          │ s3://<bucket>/code/      │
-│ cluster/run_cluster.sh  │          │                          │
-└─────────────────────────┘          │  ┌────────────────────┐  │
-                                      │  │   EMR cluster       │  │
-                                      │  │  (1 master + 2     │  │
-                                      │  │   core m5.xlarge)  │  │
-                                      │  │                    │  │
-                                      │  │  HDFS  ←─ S3       │  │
-                                      │  │  Hive, Spark, MR   │  │
-                                      │  │  → benchmarks_     │  │
-                                      │  │    cluster.csv     │  │
-                                      │  └────────────────────┘  │
-                                      │             ↓            │
-┌─────────────────────────┐ ←─download│ s3://<bucket>/results/   │
-│ results_cluster/        │           │ s3://<bucket>/           │
-│ benchmarks_cluster/     │           │   benchmarks_cluster.csv │
-│   benchmarks_cluster.csv│           └──────────────────────────┘
-│   charts_cluster/       │
-└─────────────────────────┘
-```
-
-### 9.2 File e cartelle aggiunti per il cluster
-
-```
-flight-delay-bigdata1/
-├── cluster/                                ← script per eseguire su cluster
-│   ├── upload_to_s3.sh                     ← (locale) carica dati+codice su S3
-│   ├── run_cluster.sh                      ← (sul master EMR) esegue 9 job × 6 dataset
-│   ├── download_results.sh                 ← (locale) scarica risultati e benchmark
-│   └── cluster_setup.md                    ← guida step-by-step (AWS Academy + EMR)
-│
-├── benchmarks_cluster/                     ← speculare a benchmarks/
-│   ├── benchmarks_cluster.csv              ← tempi cluster (popolato da download)
-│   ├── charts_cluster/                     ← grafici cluster (popolati da generate)
-│   └── generate_charts_cluster.py          ← genera i 3 grafici cluster
-│
-└── results_cluster/                        ← speculare a results/
-    ├── analysis_31/{hive,spark_sql,mapreduce}/
-    │   ├── *_full_results.csv
-    │   └── *_top_10results.csv
-    ├── analysisis_32/{hive,spark_sql,mapreduce}/
-    │   └── ... stessi 2 file per ciascuna tecnologia
-    └── analysisis_33/{spark_core,spark_sql,mapreduce}/
-        └── ... stessi 2 file per ciascuna tecnologia
-```
-
-### 9.3 Esecuzione in 3 step
+**1) Upload dati e codice su S3** (dal proprio laptop, una volta sola):
 
 ```bash
-# Prerequisito: aws CLI configurato con credenziali AWS Academy attive
-# (vedi cluster/cluster_setup.md per i dettagli)
+bash cluster/upload_to_s3.sh <nome-bucket>
+```
 
-# 1) Upload dati e codice su S3 (da locale, una sola volta)
-bash cluster/upload_to_s3.sh flight-delay-bigdata-tuonome-2026
+Carica i 6 CSV puliti + le 3 cartelle `analysis_*/` + lo script `run_cluster.sh` nella struttura S3:
 
-# 2) Lancia EMR (console o CLI) → SSH al master → esegui:
-#    aws s3 cp s3://flight-delay-bigdata-tuonome-2026/code/run_cluster.sh .
-#    S3_BUCKET=flight-delay-bigdata-tuonome-2026 bash run_cluster.sh
+```
+s3://<bucket>/data/dataset_{10,25,50,75,100,150}.csv
+s3://<bucket>/code/{analysis_31,analysis_32,analysis_33}/...
+s3://<bucket>/code/run_cluster.sh
+```
 
-# 3) Scarica risultati e benchmark sul laptop
-bash cluster/download_results.sh flight-delay-bigdata-tuonome-2026
+**2) Lancio cluster + esecuzione delle analisi**:
 
-# 4) Genera i grafici cluster
+```bash
+# (dal laptop) creazione cluster
+aws emr create-cluster \
+  --name flight-delay-cluster \
+  --release-label emr-7.8.0 \
+  --applications Name=Hadoop Name=Hive Name=Spark \
+  --instance-type m5.xlarge --instance-count 3 \
+  --use-default-roles \
+  --ec2-attributes KeyName=<key-pair> \
+  --region us-east-1
+
+# (dopo che lo stato è WAITING) SSH al master
+ssh -i ~/<key-pair>.pem hadoop@<master-dns>
+
+# (sul master) sincronizzazione codice ed esecuzione
+aws s3 cp s3://<bucket>/code/run_cluster.sh .
+S3_BUCKET=<bucket> bash run_cluster.sh
+exit
+```
+
+`run_cluster.sh` copia i dataset da S3 a HDFS, esegue tutti i 54 job (6 percentuali × 9 analisi), salva i risultati del 100% su `s3://<bucket>/results/` e il benchmark complessivo su `s3://<bucket>/benchmarks_cluster.csv`.
+
+**3) Download dei risultati**:
+
+```bash
+bash cluster/download_results.sh <nome-bucket>
+```
+
+Scarica `s3://<bucket>/results/` → [results_cluster/](results_cluster/) e il CSV benchmark → [benchmarks_cluster/benchmarks_cluster.csv](benchmarks_cluster/benchmarks_cluster.csv).
+
+### Terminazione del cluster
+
+Critico per non consumare crediti AWS Academy:
+
+```bash
+aws emr terminate-clusters --cluster-ids <cluster-id>
+```
+
+---
+
+## 9. Risultati
+
+I risultati al 100% sono organizzati per analisi e per tecnologia. Per ciascuna implementazione vengono salvati due file:
+
+- `*_full_results.csv` — risultato completo
+- `*_top_10results.csv` — header + prime 10 righe (come richiesto dal §5 PDF)
+
+### Conteggio righe (coerente tra tutte le tecnologie e ambienti)
+
+| Analisi | Hive | MapReduce | Spark SQL | Spark Core |
+|---|:-:|:-:|:-:|:-:|
+| 3.1 | 18.683 | 18.683 | 18.683 | — |
+| 3.2 | 4.039 | 4.039 | 4.039 | — |
+| 3.3 | — | 1.738 | 1.738 | 1.738 |
+
+### Esempi di output (prime 4 righe)
+
+**3.1 — Statistiche compagnie (Hive)**
+
+```csv
+codice,aeroporto_partenza,numero_voli,ritardo_minimo,ritardo_massimo,ritardo_medio,tasso_cancellazione,mese
+9E,ABE,71,-28.0,438.0,21.29,0.0,1
+9E,ABE,59,-29.0,113.0,-5.71,1.7,2
+9E,ABE,69,-30.0,309.0,-4.8,0.0,3
+```
+
+**3.2 — Report fasce di ritardo (Hive)**
+
+```csv
+aeroporto_partenza,mese,numero_ritardi_basso,dep_avg_basso,arr_avg_basso,numero_ritardi_medio,dep_avg_medio,arr_avg_medio,numero_ritardo_alto,dep_avg_alto,arr_avg_alto,cause_maggiori
+ABE,1,230,-4.59,-9.83,31,34.32,32.5,30,241.3,234.03,"['NAS (46 voli)', 'Carrier (32 voli)', 'Late Aircraft (32 voli)']"
+ABE,2,219,-5.38,-13.5,20,29.7,10.11,14,227.93,217.93,"['Carrier (16 voli)', 'NAS (16 voli)', 'Late Aircraft (12 voli)']"
+ABE,3,274,-5.41,-13.97,28,30.68,19.89,23,173.43,163.39,"['Late Aircraft (19 voli)', 'NAS (19 voli)', 'Carrier (17 voli)']"
+```
+
+**3.3 — Ranking compagnia-aeroporto (Spark Core)**
+
+```csv
+aeroporto_partenza,compagnia,numero_voli,ritardo_medio_partenza,ritardo_medio_arrivo,tasso_cancellazione,differenza,classifica
+ABE,9E,935,10.88,3.93,1.5,-3.45,1
+ABE,G4,1631,11.05,5.62,1.8,-3.28,2
+ABE,OH,999,17.10,8.23,1.5,2.77,3
+```
+
+I top 10 completi sono in `results/<analisi>/<tecnologia>/<tecnologia>_top_10results.csv` (locale) e analoghi in `results_cluster/`.
+
+---
+
+## 10. Benchmark e scalabilità
+
+I tempi di esecuzione sono raccolti automaticamente dagli script (locale e cluster) per ciascuna combinazione (percentuale, analisi, tecnologia).
+
+### Tempi al 100% (~6.87 M record)
+
+| Analisi | Tecnologia | Locale (s) | Cluster (s) |
+|---|---|:-:|:-:|
+| 3.1 | Hive | 12 | 33 |
+| 3.1 | Spark SQL | 5 | 28 |
+| 3.1 | MapReduce | 14 | 43 |
+| 3.2 | Hive | 38 | 48 |
+| 3.2 | Spark SQL | 11 | 50 |
+| 3.2 | MapReduce | 21 | 48 |
+| 3.3 | Spark Core | 6 | 55 |
+| 3.3 | Spark SQL | 6 | 28 |
+| 3.3 | MapReduce | 15 | 48 |
+
+Tabella completa (6 percentuali × 9 job): [benchmarks/benchmarks.csv](benchmarks/benchmarks.csv) e [benchmarks_cluster/benchmarks_cluster.csv](benchmarks_cluster/benchmarks_cluster.csv).
+
+### Grafici di scalabilità
+
+| Locale | Cluster |
+|---|---|
+| ![](benchmarks/charts/scalability_per_analysis.png) | ![](benchmarks_cluster/charts_cluster/scalability_per_analysis.png) |
+| ![](benchmarks/charts/comparison_100pct.png) | ![](benchmarks_cluster/charts_cluster/comparison_100pct.png) |
+| ![](benchmarks/charts/heatmap_times.png) | ![](benchmarks_cluster/charts_cluster/heatmap_times.png) |
+
+### Osservazioni
+
+- **Spark SQL** è la tecnologia più veloce in locale per quasi tutte le analisi: il motore Catalyst ottimizza il piano di esecuzione e tiene i dati in memoria.
+- **Hive** ha l'overhead di startup più alto (avvio sessione + Derby metastore + planning), che lo penalizza specialmente sui dataset piccoli.
+- **MapReduce** in locale scala lineare per via dell'I/O su disco; su cluster beneficia maggiormente del parallelismo tra reducer.
+- **Cluster** ha un overhead fisso di startup (provisioning container YARN, scheduling) di ~25–30 s per job: a parità di dataset i tempi sul 10% sono molto più alti in cluster, ma su dataset più grandi il gap si riduce e il cluster scala in modo sub-lineare.
+
+---
+
+## 11. Confronto locale vs cluster
+
+Il confronto sistematico è realizzato nel notebook [comparisons/confronto_locale_cluster.ipynb](comparisons/confronto_locale_cluster.ipynb). Verifica:
+
+1. **Coerenza dei risultati** — Per tutte le 9 implementazioni, i `*_full_results.csv` cluster e locali sono **byte-identici** per MapReduce, e differiscono solo per ordine di tie-breaking non deterministico in alcune righe per Hive/Spark SQL (gruppi con metrica identica).
+2. **Speedup** — Rapporto `T_locale / T_cluster`. Risulta < 1 per dataset piccoli (cluster più lento per overhead), tende a > 1 per dataset più grandi.
+3. **Grafici di confronto**: [comparisons/charts/](comparisons/charts/) — `comparison_locale_vs_cluster_100pct.png`, `scalability_locale_vs_cluster.png`, `speedup_per_tech.png`, `heatmap_speedup.png`.
+
+**Conclusione**: i risultati prodotti dalle due esecuzioni (locale e cluster) sono **funzionalmente identici**; le differenze residue sono limitate alla rappresentazione decimale (vedi §12) e all'ordine di righe con stessa metrica di sort.
+
+---
+
+## 12. Note implementative
+
+### 12.1 Multi-reducer su EMR e ordinamento globale
+
+I job MapReduce in cluster EMR usano per default più reducer (almeno 2 con 2 core nodes). Ogni reducer produce un file `part-NNNNN` ordinato internamente per chiave, ma la concatenazione dei file di parti **non è globalmente ordinata**. Per garantire output coerenti con la versione locale (un solo reducer → output già ordinato), la funzione `hdfs_collect()` in [cluster/run_cluster.sh](cluster/run_cluster.sh) applica un `sort` finale con la chiave appropriata per ciascuna analisi:
+
+| Analisi | Chiave di sort | Tipo |
+|---|---|---|
+| 3.1 | `carrier, origin, mese` | tutti string |
+| 3.2 | `airport, mese` | tutti string |
+| 3.3 | `airport, classifica` | string + numeric |
+
+Con questo accorgimento i `mapreduce_full_results.csv` cluster sono byte-identici ai locali.
+
+### 12.2 Trailing comma nello streaming output
+
+Hadoop Streaming, quando il reducer emette righe già formattate, le serializza come `key<TAB>value` su HDFS. Lo script di salvataggio converte i tab in virgole; senza accortezze, ciò produrrebbe una virgola finale spuria. È applicato il filtro `| sed 's/,$//'` in `save_to_s3()` di [cluster/run_cluster.sh](cluster/run_cluster.sh) per eliminare il trailing comma.
+
+### 12.3 Formattazione decimale Python vs Hive
+
+Differenze residue **cosmetiche** tra MapReduce (Python) e Hive/SparkSQL su colonne float:
+
+- **Trailing zero**: Python `f"{x:.2f}"` emette sempre 2 decimali (`-4.80`), Hive `ROUND(x, 2)` elimina gli zeri finali nello stringify (`-4.8`).
+- **Rounding mode**: Python usa banker's rounding (round-half-to-even), Hive usa round-half-away-from-zero. La differenza emerge solo per valori esattamente equidistanti, su un ordine dello 0.7% delle righe e con scarto ±0.01.
+
+Entrambe le differenze sono di **rappresentazione**, non di calcolo aggregato: i conteggi e le somme intermedie sono identici.
+
+### 12.4 Esclusione voli deviati e cancellati nelle medie
+
+Per allineare il comportamento di SQL (`AVG` ignora i NULL) con la logica MapReduce, i mapper Python emettono **stringa vuota** anziché `0.0` quando un valore è mancante, e i reducer escludono i voli cancellati dalle medie di ritardo. Le cancellazioni sono comunque conteggiate ai fini del **tasso di cancellazione**.
+
+---
+
+## 13. Conformità alla traccia
+
+| Punto PDF | Richiesta | Dove è soddisfatta |
+|---|---|---|
+| §1 | Dataset Flight Delay 2024, ≥7M record | [data_preparation.ipynb](data_preparation.ipynb), §2 README |
+| §2 | ≥2 analisi con ≥3 tecnologie | **3 analisi × 3 tecnologie** (vedi §5) |
+| §3.1 | Statistiche compagnie | [analysis_31/](analysis_31/), §4.1 |
+| §3.2 | Report fasce di ritardo | [analysis_32/](analysis_32/), §4.2 |
+| §3.3 | Ranking anomalie | [analysis_33/](analysis_33/), §4.3 |
+| §4 | Preparazione dei dati documentata | [data_preparation.ipynb](data_preparation.ipynb), §3 README |
+| §5 — codice | Repository GitHub con codice completo | questo repository |
+| §5 — top 10 | Prime 10 righe di ciascun output | `*_top_10results.csv` in `results/` e `results_cluster/` |
+| §5 — tabelle/grafici | Confronto tempi locale vs cluster | §10–§11 README, [comparisons/](comparisons/) |
+| §5 — discussione | Commento critico (espressività, semplicità, efficienza, scalabilità, shuffle) | §10 (osservazioni) + §12 (note implementative) |
+| §6 | Dataset di dimensione crescente, locale + cluster | 6 percentuali (10/25/50/75/100/150 %) in entrambi gli ambienti |
+| §7 | Repository, script, istruzioni | §6–§8 README |
+
+---
+
+## Riproducibilità rapida
+
+```bash
+# 1. Clona il repo, scarica il dataset Kaggle in data/raw/
+# 2. Genera i 6 dataset puliti
+jupyter nbconvert --to notebook --execute data_preparation.ipynb
+
+# 3. Esecuzione locale (tutto)
+bash run_all_analyses.sh
+python3 benchmarks/generate_charts.py
+
+# 4. (Opzionale) Esecuzione su cluster AWS EMR
+bash cluster/upload_to_s3.sh <bucket>
+# ... vedi §8 per il workflow completo
+bash cluster/download_results.sh <bucket>
 python3 benchmarks_cluster/generate_charts_cluster.py
+
+# 5. Confronto
+jupyter nbconvert --to notebook --execute comparisons/confronto_locale_cluster.ipynb
 ```
-
-Lo script `run_cluster.sh` esegue in vera modalità distribuita:
-- **Hive** e **Spark SQL** su YARN/EMR con storage HDFS
-- **Spark Core 3.3** via `spark-submit --master yarn --deploy-mode cluster`
-- **MapReduce** via `hadoop jar hadoop-streaming.jar` (vera esecuzione distribuita, non pipe Unix)
-
-### 9.4 Confronto locale vs cluster
-
-Una volta scaricati i risultati cluster:
-
-```bash
-# Confronto tempi
-diff <(sort benchmarks/benchmarks.csv) <(sort benchmarks_cluster/benchmarks_cluster.csv)
-
-# Coerenza dati 100% (devono essere identici a meno di arrotondamenti float)
-diff results/analysis_31/hive/hive_full_results.csv \
-     results_cluster/analysis_31/hive/hive_full_results.csv
-```
-
-### 9.5 Costi
-
-Costo stimato per un'esecuzione completa (3 nodi `m5.xlarge` × ~1h): **< $1**.
-Con $50 di crediti AWS Academy hai margine per ripetere il run molte volte.
-
-> ⚠️ **Importante**: terminare sempre il cluster a fine sessione per non bruciare crediti:
-> ```bash
-> aws emr terminate-clusters --cluster-ids <cluster-id>
-> ```
-
-Per la guida operativa completa (avvio Learner Lab, IAM, key pair, SSH, troubleshooting) → vedi [cluster/cluster_setup.md](cluster/cluster_setup.md).

@@ -60,10 +60,10 @@ if [ ! -d "$BASE_DIR/metastore_db" ]; then
 fi
 
 # Genera file SQL combinati (setup + query) per Hive — una sola sessione Derby
-cat "$BASE_DIR/analysisis_31/hive/setup_table.sql" \
-    "$BASE_DIR/analysisis_31/hive/hive_3_1.sql" > /tmp/hive_run_31.sql
-cat "$BASE_DIR/analysisis_32/hive/setup_table.sql" \
-    "$BASE_DIR/analysisis_32/hive/hive_3_2.sql" > /tmp/hive_run_32.sql
+cat "$BASE_DIR/analysis_31/hive/setup_table.sql" \
+    "$BASE_DIR/analysis_31/hive/hive_3_1.sql" > /tmp/hive_run_31.sql
+cat "$BASE_DIR/analysis_32/hive/setup_table.sql" \
+    "$BASE_DIR/analysis_32/hive/hive_3_2.sql" > /tmp/hive_run_32.sql
 
 echo ">> Database pronto! Avvio dell'elaborazione..."
 echo "----------------------------------------"
@@ -85,27 +85,27 @@ elif [ "$TECH_SCELTA" == "2" ]; then
     # Nascondiamo i warning lunghi di Spark in console
     export SPARK_SUBMIT_OPTS="-Dlog4j.configuration=file://$SPARK_HOME/conf/log4j2.properties"
     if [ "$ANALISI_SCELTA" == "1" ]; then
-        "$SPARK_HOME/bin/spark-sql" $HIVE_SETTINGS --hiveconf DATA_PATH="$CSV_DB_PATH" -S -f "$BASE_DIR/analysisis_31/spark_sql/spark_sql_3_1.sql" 2>/dev/null | tr '\t' ',' | grep -vE "$FILTRO_PULIZIA" | head -n 10
+        "$SPARK_HOME/bin/spark-sql" $HIVE_SETTINGS --hiveconf DATA_PATH="$CSV_DB_PATH" -S -f "$BASE_DIR/analysis_31/spark_sql/spark_sql_3_1.sql" 2>/dev/null | tr '\t' ',' | grep -vE "$FILTRO_PULIZIA" | head -n 10
     elif [ "$ANALISI_SCELTA" == "2" ]; then
-        "$SPARK_HOME/bin/spark-sql" $HIVE_SETTINGS --hiveconf DATA_PATH="$CSV_DB_PATH" -S -f "$BASE_DIR/analysisis_32/spark_sql/spark_sql_3_2.sql" 2>/dev/null | tr '\t' ',' | grep -vE "$FILTRO_PULIZIA" | head -n 10
+        "$SPARK_HOME/bin/spark-sql" $HIVE_SETTINGS --hiveconf DATA_PATH="$CSV_DB_PATH" -S -f "$BASE_DIR/analysis_32/spark_sql/spark_sql_3_2.sql" 2>/dev/null | tr '\t' ',' | grep -vE "$FILTRO_PULIZIA" | head -n 10
     elif [ "$ANALISI_SCELTA" == "3" ]; then
-        "$SPARK_HOME/bin/spark-sql" $HIVE_SETTINGS --hiveconf DATA_PATH="$CSV_DB_PATH" -S -f "$BASE_DIR/analysisis_33/spark_sql/spark_sql_3_3.sql" 2>/dev/null | tr '\t' ',' | grep -vE "$FILTRO_PULIZIA" | head -n 10
+        "$SPARK_HOME/bin/spark-sql" $HIVE_SETTINGS --hiveconf DATA_PATH="$CSV_DB_PATH" -S -f "$BASE_DIR/analysis_33/spark_sql/spark_sql_3_3.sql" 2>/dev/null | tr '\t' ',' | grep -vE "$FILTRO_PULIZIA" | head -n 10
     fi
 
 # ============== MAPREDUCE ===============
 elif [ "$TECH_SCELTA" == "3" ]; then
     if [ "$ANALISI_SCELTA" == "1" ]; then
-        cat "$DATASET_CSV" | python3 "$BASE_DIR/analysisis_31/mapreduce/mapper.py" | sort | python3 "$BASE_DIR/analysisis_31/mapreduce/reducer.py" 2>/dev/null | head -n 10
+        cat "$DATASET_CSV" | python3 "$BASE_DIR/analysis_31/mapreduce/mapper.py" | sort | python3 "$BASE_DIR/analysis_31/mapreduce/reducer.py" 2>/dev/null | head -n 10
     elif [ "$ANALISI_SCELTA" == "2" ]; then
-        cat "$DATASET_CSV" | python3 "$BASE_DIR/analysisis_32/mapreduce/mapper_3_2.py" | sort | python3 "$BASE_DIR/analysisis_32/mapreduce/reducer_3_2.py" 2>/dev/null | head -n 10
+        cat "$DATASET_CSV" | python3 "$BASE_DIR/analysis_32/mapreduce/mapper_3_2.py" | sort | python3 "$BASE_DIR/analysis_32/mapreduce/reducer_3_2.py" 2>/dev/null | head -n 10
     elif [ "$ANALISI_SCELTA" == "3" ]; then
-        cat "$DATASET_CSV" | python3 "$BASE_DIR/analysisis_33/mapreduce/mapper_3_3.py" | sort | python3 "$BASE_DIR/analysisis_33/mapreduce/reducer_3_3.py" 2>/dev/null | head -n 10
+        cat "$DATASET_CSV" | python3 "$BASE_DIR/analysis_33/mapreduce/mapper_3_3.py" | sort | python3 "$BASE_DIR/analysis_33/mapreduce/reducer_3_3.py" 2>/dev/null | head -n 10
     fi
 
 # ============== SPARK CORE ==============
 elif [ "$TECH_SCELTA" == "4" ]; then
     rm -rf "$BASE_DIR/temp_debug_spark_core"
-    "$SPARK_HOME/bin/spark-submit" "$BASE_DIR/analysisis_33/spark_core/spark_core_3_3_.py" "$LOCAL_DATASET_URI" "file://$BASE_DIR/temp_debug_spark_core" > /dev/null 2>&1
+    "$SPARK_HOME/bin/spark-submit" "$BASE_DIR/analysis_33/spark_core/spark_core_3_3_.py" "$LOCAL_DATASET_URI" "file://$BASE_DIR/temp_debug_spark_core" > /dev/null 2>&1
     cat "$BASE_DIR"/temp_debug_spark_core/part-* 2>/dev/null | grep -vE "$FILTRO_PULIZIA" | head -n 10
     rm -rf "$BASE_DIR/temp_debug_spark_core"
 

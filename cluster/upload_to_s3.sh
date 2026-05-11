@@ -35,7 +35,7 @@ done
 
 echo ""
 echo ">> Carico il codice delle analisi..."
-for ANA in analysisis_31 analysisis_32 analysisis_33; do
+for ANA in analysis_31 analysis_32 analysis_33; do
     aws s3 sync "$BASE_DIR/$ANA/" "s3://$S3_BUCKET/code/$ANA/" \
         --exclude "*.pyc" --exclude "__pycache__/*" --only-show-errors
     echo "  $ANA/ ✓"

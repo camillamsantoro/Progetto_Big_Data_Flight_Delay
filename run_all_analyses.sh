@@ -19,8 +19,8 @@ HIVE_SETTINGS="--hiveconf fs.defaultFS=file:/// --hiveconf hive.metastore.wareho
 
 # --- 4. PREPARAZIONE STRUTTURA ---
 mkdir -p results/analysis_31/{hive,spark_sql,mapreduce}
-mkdir -p results/analysisis_32/{hive,spark_sql,mapreduce}
-mkdir -p results/analysisis_33/{spark_core,spark_sql,mapreduce}
+mkdir -p results/analysis_32/{hive,spark_sql,mapreduce}
+mkdir -p results/analysis_33/{spark_core,spark_sql,mapreduce}
 mkdir -p benchmarks
 mkdir -p "$BASE_DIR/hive_warehouse" /tmp/hive_scratch
 chmod 1777 /tmp/hive_scratch 2>/dev/null
@@ -75,39 +75,39 @@ do
     CSV_DB_PATH="file://$BASE_DIR/tmp_csv_db"
 
     # Genera file SQL combinati (setup + query) per Hive — una sola sessione Derby per evitare lock
-    cat "$BASE_DIR/analysisis_31/hive/setup_table.sql" \
-        "$BASE_DIR/analysisis_31/hive/hive_3_1.sql" > /tmp/hive_run_31.sql
-    cat "$BASE_DIR/analysisis_32/hive/setup_table.sql" \
-        "$BASE_DIR/analysisis_32/hive/hive_3_2.sql" > /tmp/hive_run_32.sql
+    cat "$BASE_DIR/analysis_31/hive/setup_table.sql" \
+        "$BASE_DIR/analysis_31/hive/hive_3_1.sql" > /tmp/hive_run_31.sql
+    cat "$BASE_DIR/analysis_32/hive/setup_table.sql" \
+        "$BASE_DIR/analysis_32/hive/hive_3_2.sql" > /tmp/hive_run_32.sql
 
     # --- ANALISI 3.1 ---
     CMD_H31="\"$HIVE_HOME/bin/hive\" $HIVE_SETTINGS --hiveconf DATA_PATH='$CSV_DB_PATH' -S -f '/tmp/hive_run_31.sql'"
     esegui_e_cronometra "$P" "3.1" "Hive" "$CMD_H31" "echo '$HEADER_31' > temp_hive_31.csv && $CMD_H31 | tr '\t' ',' | grep -vE '$FILTRO_PULIZIA' >> temp_hive_31.csv"
 
-    CMD_S31="\"$SPARK_HOME/bin/spark-sql\" $HIVE_SETTINGS --hiveconf DATA_PATH='$CSV_DB_PATH' -S -f '$BASE_DIR/analysisis_31/spark_sql/spark_sql_3_1.sql'"
+    CMD_S31="\"$SPARK_HOME/bin/spark-sql\" $HIVE_SETTINGS --hiveconf DATA_PATH='$CSV_DB_PATH' -S -f '$BASE_DIR/analysis_31/spark_sql/spark_sql_3_1.sql'"
     esegui_e_cronometra "$P" "3.1" "Spark_SQL" "$CMD_S31" "echo '$HEADER_31' > temp_spark_sql_31.csv && $CMD_S31 | tr '\t' ',' | grep -vE '$FILTRO_PULIZIA' >> temp_spark_sql_31.csv"
 
-    CMD_M31="cat '$DATASET_CSV' | python3 '$BASE_DIR/analysisis_31/mapreduce/mapper.py' | sort | python3 '$BASE_DIR/analysisis_31/mapreduce/reducer.py'"
+    CMD_M31="cat '$DATASET_CSV' | python3 '$BASE_DIR/analysis_31/mapreduce/mapper.py' | sort | python3 '$BASE_DIR/analysis_31/mapreduce/reducer.py'"
     esegui_e_cronometra "$P" "3.1" "MapReduce" "$CMD_M31" "echo '$HEADER_31' > temp_mr_31.csv && $CMD_M31 >> temp_mr_31.csv"
 
     # --- ANALISI 3.2 ---
     CMD_H32="\"$HIVE_HOME/bin/hive\" $HIVE_SETTINGS --hiveconf DATA_PATH='$CSV_DB_PATH' -S -f '/tmp/hive_run_32.sql'"
     esegui_e_cronometra "$P" "3.2" "Hive" "$CMD_H32" "echo '$HEADER_32' > temp_hive_32.csv && $CMD_H32 | tr '\t' ',' | grep -vE '$FILTRO_PULIZIA' >> temp_hive_32.csv"
 
-    CMD_S32="\"$SPARK_HOME/bin/spark-sql\" $HIVE_SETTINGS --hiveconf DATA_PATH='$CSV_DB_PATH' -S -f '$BASE_DIR/analysisis_32/spark_sql/spark_sql_3_2.sql'"
+    CMD_S32="\"$SPARK_HOME/bin/spark-sql\" $HIVE_SETTINGS --hiveconf DATA_PATH='$CSV_DB_PATH' -S -f '$BASE_DIR/analysis_32/spark_sql/spark_sql_3_2.sql'"
     esegui_e_cronometra "$P" "3.2" "Spark_SQL" "$CMD_S32" "echo '$HEADER_32' > temp_spark_sql_32.csv && $CMD_S32 | tr '\t' ',' | grep -vE '$FILTRO_PULIZIA' >> temp_spark_sql_32.csv"
 
-    CMD_M32="cat '$DATASET_CSV' | python3 '$BASE_DIR/analysisis_32/mapreduce/mapper_3_2.py' | sort | python3 '$BASE_DIR/analysisis_32/mapreduce/reducer_3_2.py'"
+    CMD_M32="cat '$DATASET_CSV' | python3 '$BASE_DIR/analysis_32/mapreduce/mapper_3_2.py' | sort | python3 '$BASE_DIR/analysis_32/mapreduce/reducer_3_2.py'"
     esegui_e_cronometra "$P" "3.2" "MapReduce" "$CMD_M32" "echo '$HEADER_32' > temp_mr_32.csv && $CMD_M32 >> temp_mr_32.csv"
 
     # --- ANALISI 3.3 ---
-    CMD_C33="rm -rf '$BASE_DIR/temp_spark_core_out' && \"$SPARK_HOME/bin/spark-submit\" '$BASE_DIR/analysisis_33/spark_core/spark_core_3_3_.py' '$LOCAL_DATASET_URI' 'file://$BASE_DIR/temp_spark_core_out'"
+    CMD_C33="rm -rf '$BASE_DIR/temp_spark_core_out' && \"$SPARK_HOME/bin/spark-submit\" '$BASE_DIR/analysis_33/spark_core/spark_core_3_3_.py' '$LOCAL_DATASET_URI' 'file://$BASE_DIR/temp_spark_core_out'"
     esegui_e_cronometra "$P" "3.3" "Spark_Core" "$CMD_C33" "$CMD_C33 && echo '$HEADER_33' > temp_spark_core_33.csv && cat '$BASE_DIR'/temp_spark_core_out/part-* | grep -vE '$FILTRO_PULIZIA' >> temp_spark_core_33.csv"
 
-    CMD_S33="\"$SPARK_HOME/bin/spark-sql\" $HIVE_SETTINGS --hiveconf DATA_PATH='$CSV_DB_PATH' -S -f '$BASE_DIR/analysisis_33/spark_sql/spark_sql_3_3.sql'"
+    CMD_S33="\"$SPARK_HOME/bin/spark-sql\" $HIVE_SETTINGS --hiveconf DATA_PATH='$CSV_DB_PATH' -S -f '$BASE_DIR/analysis_33/spark_sql/spark_sql_3_3.sql'"
     esegui_e_cronometra "$P" "3.3" "Spark_SQL" "$CMD_S33" "echo '$HEADER_33' > temp_spark_sql_33.csv && $CMD_S33 | tr '\t' ',' | grep -vE '$FILTRO_PULIZIA' >> temp_spark_sql_33.csv"
 
-    CMD_M33="cat '$DATASET_CSV' | python3 '$BASE_DIR/analysisis_33/mapreduce/mapper_3_3.py' | sort | python3 '$BASE_DIR/analysisis_33/mapreduce/reducer_3_3.py'"
+    CMD_M33="cat '$DATASET_CSV' | python3 '$BASE_DIR/analysis_33/mapreduce/mapper_3_3.py' | sort | python3 '$BASE_DIR/analysis_33/mapreduce/reducer_3_3.py'"
     esegui_e_cronometra "$P" "3.3" "MapReduce" "$CMD_M33" "echo '$HEADER_33' > temp_mr_33.csv && $CMD_M33 >> temp_mr_33.csv"
 
     # --- SALVATAGGIO DEFINITIVO (SOLO AL 100%) ---
@@ -123,23 +123,23 @@ do
         cp temp_mr_31.csv results/analysis_31/mapreduce/mapreduce_full_results.csv
         head -n 11 temp_mr_31.csv > results/analysis_31/mapreduce/mapreduce_top_10results.csv
 
-        cp temp_hive_32.csv results/analysisis_32/hive/hive_full_results.csv
-        head -n 11 temp_hive_32.csv > results/analysisis_32/hive/hive_top_10results.csv
+        cp temp_hive_32.csv results/analysis_32/hive/hive_full_results.csv
+        head -n 11 temp_hive_32.csv > results/analysis_32/hive/hive_top_10results.csv
         
-        cp temp_spark_sql_32.csv results/analysisis_32/spark_sql/spark_sql_full_results.csv
-        head -n 11 temp_spark_sql_32.csv > results/analysisis_32/spark_sql/spark_sql_top_10results.csv
+        cp temp_spark_sql_32.csv results/analysis_32/spark_sql/spark_sql_full_results.csv
+        head -n 11 temp_spark_sql_32.csv > results/analysis_32/spark_sql/spark_sql_top_10results.csv
         
-        cp temp_mr_32.csv results/analysisis_32/mapreduce/mapreduce_full_results.csv
-        head -n 11 temp_mr_32.csv > results/analysisis_32/mapreduce/mapreduce_top_10results.csv
+        cp temp_mr_32.csv results/analysis_32/mapreduce/mapreduce_full_results.csv
+        head -n 11 temp_mr_32.csv > results/analysis_32/mapreduce/mapreduce_top_10results.csv
 
-        cp temp_spark_core_33.csv results/analysisis_33/spark_core/spark_core_full_results.csv
-        head -n 11 temp_spark_core_33.csv > results/analysisis_33/spark_core/spark_core_top_10results.csv
+        cp temp_spark_core_33.csv results/analysis_33/spark_core/spark_core_full_results.csv
+        head -n 11 temp_spark_core_33.csv > results/analysis_33/spark_core/spark_core_top_10results.csv
         
-        cp temp_spark_sql_33.csv results/analysisis_33/spark_sql/spark_sql_full_results.csv
-        head -n 11 temp_spark_sql_33.csv > results/analysisis_33/spark_sql/spark_sql_top_10results.csv
+        cp temp_spark_sql_33.csv results/analysis_33/spark_sql/spark_sql_full_results.csv
+        head -n 11 temp_spark_sql_33.csv > results/analysis_33/spark_sql/spark_sql_top_10results.csv
         
-        cp temp_mr_33.csv results/analysisis_33/mapreduce/mapreduce_full_results.csv
-        head -n 11 temp_mr_33.csv > results/analysisis_33/mapreduce/mapreduce_top_10results.csv
+        cp temp_mr_33.csv results/analysis_33/mapreduce/mapreduce_full_results.csv
+        head -n 11 temp_mr_33.csv > results/analysis_33/mapreduce/mapreduce_top_10results.csv
     fi
     
     # Pulizia a fine loop
