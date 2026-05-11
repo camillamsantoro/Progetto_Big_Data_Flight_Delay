@@ -21,7 +21,7 @@ select ac.aeroporto_partenza,
        ac.ritardo_medio_arrivo,
        ac.tasso_cancellazione,
        round((ac.ritardo_medio_partenza - a.ritardo_medio_complessivo), 2) as differenza,
-       row_number() over(partition by ac.aeroporto_partenza order by ac.ritardo_medio_partenza asc) as classifica
+       row_number() over(partition by ac.aeroporto_partenza order by ac.ritardo_medio_partenza asc, ac.compagnia asc) as classifica
 from aeroporto_compagnia_stat ac
 join aeroporto_stat a on ac.aeroporto_partenza = a.origin
 order by ac.aeroporto_partenza, ac.compagnia, classifica

@@ -69,7 +69,7 @@ def main():
         origin = x[0]
         carriers_list = list(x[1])
         # Ordina per ritardo medio partenza ascendente (miglior performance prima)
-        carriers_list.sort(key=lambda item: item[2])
+        carriers_list.sort(key=lambda item: (item[2], item[0]))
         out = []
         for rank, c in enumerate(carriers_list, 1):
             out.append((origin, c[0], c[1], c[2], c[3], c[4], c[5], rank))

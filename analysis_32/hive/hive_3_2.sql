@@ -40,12 +40,19 @@ cause_ritardi as (
 classifica_cause as (
     select origin, month, causa, frequenza,
            concat(causa, ' (', cast(frequenza as int), ' voli)') as cause_desc,
-           row_number() over(partition by origin, month order by frequenza desc) as ranking
+           row_number() over(partition by origin, month order by frequenza desc, causa asc) as ranking
     from cause_ritardi
 ),
 top_3_cause_aggregate as (
     select origin, month,
-concat(chr(34), '[', chr(39), concat_ws(concat(chr(39), ', ', chr(39)), collect_list(cause_desc)), chr(39), ']', chr(34)) as cause_maggiori
+           concat(chr(34), '[', chr(39),
+                  regexp_replace(
+                    concat_ws(concat(chr(39), ', ', chr(39)),
+                              sort_array(collect_list(concat(cast(ranking as string), '|', cause_desc)))
+                    ),
+                    '[0-9]+\\|', ''
+                  ),
+                  chr(39), ']', chr(34)) as cause_maggiori
     from classifica_cause
     where ranking <= 3
     group by origin, month

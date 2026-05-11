@@ -10,6 +10,10 @@ export SPARK_HOME="/Users/camillamariasantoro/spark-3.5.8-bin-hadoop3"
 export BASE_DIR="/Users/camillamariasantoro/flight-delay-bigdata1"
 export PATH="$HIVE_HOME/bin:$SPARK_HOME/bin:$HADOOP_HOME/bin:$PATH"
 
+# Python 3.11 per PySpark (cloudpickle in 3.5.8 non supporta Python 3.13+)
+export PYSPARK_PYTHON="/opt/homebrew/opt/python@3.11/bin/python3.11"
+export PYSPARK_DRIVER_PYTHON="$PYSPARK_PYTHON"
+
 cd "$BASE_DIR" || exit 1
 
 export SPARK_LOCAL_IP="127.0.0.1"

@@ -34,7 +34,7 @@ def emit_result():
         dep_avg_alto = round(high_dep_sum / high_count, 2) if high_count > 0 else 0.0
         arr_avg_alto = round(high_arr_sum / high_arr_count, 2) if high_arr_count > 0 else 0.0
 
-        sorted_causes = sorted(causes_freq.items(), key=lambda item: item[1], reverse=True)
+        sorted_causes = sorted(causes_freq.items(), key=lambda item: (-item[1], item[0]))
 
         top_3_list = []
         for i in range(min(3, len(sorted_causes))):

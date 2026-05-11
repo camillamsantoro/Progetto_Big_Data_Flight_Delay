@@ -232,7 +232,7 @@ flight-delay-bigdata1/
 | Hadoop | 3.4.1 | Standalone mode |
 | Hive | 2.3.9 | Metastore embedded Derby |
 | Spark | 3.5.8 (`bin-hadoop3`) | |
-| Python | 3.10+ | con `pandas`, `pyspark` per la preparazione |
+| Python | 3.10 o 3.11 | con `pandas`, `pyspark`. PySpark 3.5.8 non è compatibile con Python 3.13+ (bug `cloudpickle`); `run_all_analyses.sh` imposta `PYSPARK_PYTHON=/opt/homebrew/opt/python@3.11/bin/python3.11` |
 | Java | OpenJDK 11 | Homebrew |
 
 Le variabili d'ambiente (`HADOOP_HOME`, `HIVE_HOME`, `SPARK_HOME`) vengono impostate dagli script stessi; modificare i path all'inizio di [run_all_analyses.sh](run_all_analyses.sh) e [test_singolo.sh](test_singolo.sh) per riflettere l'installazione locale.
@@ -396,12 +396,12 @@ I tempi di esecuzione sono raccolti automaticamente dagli script (locale e clust
 |---|---|:-:|:-:|
 | 3.1 | Hive | 12 | 33 |
 | 3.1 | Spark SQL | 5 | 28 |
-| 3.1 | MapReduce | 14 | 43 |
-| 3.2 | Hive | 38 | 48 |
+| 3.1 | MapReduce | 12 | 43 |
+| 3.2 | Hive | 40 | 48 |
 | 3.2 | Spark SQL | 11 | 50 |
-| 3.2 | MapReduce | 21 | 48 |
+| 3.2 | MapReduce | 19 | 48 |
 | 3.3 | Spark Core | 6 | 55 |
-| 3.3 | Spark SQL | 6 | 28 |
+| 3.3 | Spark SQL | 5 | 28 |
 | 3.3 | MapReduce | 15 | 48 |
 
 Tabella completa (6 percentuali × 9 job): [benchmarks/benchmarks.csv](benchmarks/benchmarks.csv) e [benchmarks_cluster/benchmarks_cluster.csv](benchmarks_cluster/benchmarks_cluster.csv).
