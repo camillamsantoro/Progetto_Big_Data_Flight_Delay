@@ -32,7 +32,7 @@ def emit_result():
                     'diff': diff
                 })
 
-        results.sort(key=lambda x: (x['dep_avg'], x['carrier']))
+        results.sort(key=lambda x: (float(f"{x['dep_avg']:.2f}"), x['carrier']))
 
         rank = 1
         for res in results:
