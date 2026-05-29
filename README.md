@@ -1,10 +1,9 @@
 # Flight Delay Analysis — Progetto Big Data
 
-Progetto universitario per il corso di **Big Data**, Prof. R. Torlone, Università Roma Tre.
+
 
 Analisi di circa **6.87 milioni di record di voli aerei statunitensi** (anno 2024) tramite quattro tecnologie Big Data: Apache Hive, Spark SQL, Spark Core e MapReduce. Il progetto è eseguito sia in locale che su cluster distribuito AWS EMR, con confronto delle prestazioni su sei scale di dataset.
 
-> Per l'analisi dettagliata delle scelte progettuali, dei risultati e del confronto critico tra le tecnologie si rimanda alla **relazione del progetto**.
 
 ---
 
@@ -22,7 +21,6 @@ Analisi di circa **6.87 milioni di record di voli aerei statunitensi** (anno 202
 
 ## Dataset
 
-**Sorgente**: Bureau of Transportation Statistics — On-Time Performance 2024
 
 Il dataset pulito al 100% conta **6.872.714 record**. Il notebook `data_preparation.ipynb` genera sei dataset stratificati per il benchmarking:
 
@@ -34,7 +32,6 @@ Il dataset pulito al 100% conta **6.872.714 record**. Il notebook `data_preparat
 
 Le 15 colonne mantenute includono `month`, `op_unique_carrier`, `origin`, `dest`, `dep_delay`, `arr_delay`, `cancelled`, `cancellation_code` (A=Carrier, B=Weather, C=NAS, D=Security) e le 5 cause di ritardo (`carrier_delay`, `weather_delay`, `nas_delay`, `security_delay`, `late_aircraft_delay`).
 
-I file `data/cleaned/dataset_*.csv` sono esclusi dal repository (`.gitignore`).
 
 ---
 
@@ -90,7 +87,6 @@ Per ogni coppia (aeroporto, mese): classificazione dei voli in tre fasce di rita
 Per ogni coppia (aeroporto, compagnia): statistiche di ritardo, differenza rispetto alla media complessiva dell'aeroporto e classifica (1 = performance migliore).
 **Tecnologie**: Spark SQL, Spark Core (RDD), MapReduce *(Hive non implementato)* · **Output**: 8 colonne, 1.738 righe.
 
-Le definizioni complete delle colonne di output sono documentate nella relazione.
 
 ---
 
@@ -138,7 +134,6 @@ aws emr terminate-clusters --cluster-ids <cluster-id>
 python3 benchmarks_cluster/generate_charts_cluster.py
 ```
 
-> **Importante**: terminare sempre il cluster al termine per evitare consumo di crediti AWS Academy.
 
 ---
 
@@ -162,4 +157,3 @@ Su questo workload (~1 GB) l'esecuzione locale è più veloce: l'overhead fisso 
 
 Tutte le tecnologie escludono i voli cancellati dal calcolo dei ritardi (`cancelled = 0`) e calcolano il tasso di cancellazione sul totale; i valori NULL sono esclusi dalle medie. L'Analisi 3.3 richiede una normalizzazione a 2 decimali prima dell'ordinamento per garantire un tie-breaking deterministico tra locale e cluster.
 
-Per i dettagli su gestione NULL, determinismo floating-point e differenze cross-tecnologia attese si rimanda alla **relazione del progetto**.
